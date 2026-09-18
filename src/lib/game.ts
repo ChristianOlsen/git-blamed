@@ -1,5 +1,5 @@
 import { isUsername } from "./backend-errors.ts";
-import type { CommitCard, Player } from "./types.ts";
+import type { CommitBatch, CommitCard, Player } from "./types.ts";
 
 export const MAX_PLAYERS = 8;
 
@@ -99,4 +99,69 @@ export function appendUniqueCommits(
     next.push(commit);
   }
   return next;
+}
+
+export type CommitPool = {
+  players: Player[];
+  commits: CommitCard[];
+  candidates: CommitCard[];
+  cursors: CommitBatch["cursors"];
+};
+
+type NextRound =
+  | { kind: "fetch"; usernames: string[] }
+  | { kind: "finished"; usernames: string[] }
+  | { kind: "commit"; commit: CommitCard; candidates: CommitCard[] };
+
+export function chooseNextRound(
+  pool: CommitPool,
+  random: () => number = Math.random,
+): NextRound {
+  if (!pool.players.length) {
+    throw new Error("A game needs participants before selecting a commit.");
+  }
+  // Deduplicate per author until a message is shown, so shared subjects do not
+  // belong exclusively to whichever author appears first in the pooled results.
+  const queues = pool.players.map(({ username }) =>
+    appendUniqueCommits(
+      pool.commits,
+      pool.candidates.filter(
+        (commit) => commit.author.toLowerCase() === username,
+      ),
+    ).slice(pool.commits.length),
+  );
+  const missing = pool.players.filter((_, index) => !queues[index].length);
+  const exhausted = missing.filter(
+    ({ username }) =>
+      Object.hasOwn(pool.cursors, username) && pool.cursors[username].exhausted,
+  );
+  if (exhausted.length) {
+    return {
+      kind: "finished",
+      usernames: exhausted.map(({ username }) => username),
+    };
+  }
+  if (missing.length) {
+    return {
+      kind: "fetch",
+      usernames: missing.map(({ username }) => username),
+    };
+  }
+
+  const commit = queues[Math.floor(random() * queues.length)]?.[0];
+  if (!commit) {
+    throw new Error("Unable to select a commit for this round.");
+  }
+  const message = commit.message.trim().toLowerCase();
+  return {
+    kind: "commit",
+    commit,
+    candidates: queues
+      .flat()
+      .filter(
+        (candidate) =>
+          candidate.id !== commit.id &&
+          candidate.message.trim().toLowerCase() !== message,
+      ),
+  };
 }

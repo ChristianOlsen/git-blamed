@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isRecord } from "@/lib/backend-errors";
 import { demoCommits, demoPlayers } from "@/lib/demo";
 import {
-  appendUniqueCommits,
+  type CommitPool,
+  chooseNextRound,
   navigationDirection,
   normalizePlayers,
   partyUrl,
@@ -14,11 +15,9 @@ import { ConnectDialog } from "./connect-dialog";
 import { GameScreen } from "./game-screen";
 import { SetupScreen } from "./setup-screen";
 
-export type GameSession = {
-  players: Player[];
-  commits: CommitCard[];
-  cursors: CommitBatch["cursors"];
+export type GameSession = CommitPool & {
   exhausted: boolean;
+  exhaustedPlayers: string[];
   warnings: string[];
   step: number;
   demo: boolean;
@@ -99,6 +98,26 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
 
       try {
         while (!session.exhausted) {
+          const round = chooseNextRound(session);
+          if (round.kind === "finished") {
+            updateGame({
+              ...session,
+              exhausted: true,
+              exhaustedPlayers: round.usernames,
+              step: session.commits.length * 2,
+            });
+            return;
+          }
+          if (round.kind === "commit") {
+            updateGame({
+              ...session,
+              commits: [...session.commits, round.commit],
+              candidates: round.candidates,
+              step: targetStep,
+            });
+            return;
+          }
+          const usernames = round.usernames;
           const response = await fetch("/api/commits", {
             method: "POST",
             headers: {
@@ -108,8 +127,14 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
                 : {}),
             },
             body: JSON.stringify({
-              usernames: session.players.map((player) => player.username),
-              cursors: session.cursors,
+              usernames,
+              cursors: Object.fromEntries(
+                usernames
+                  .filter((username) =>
+                    Object.hasOwn(session.cursors, username),
+                  )
+                  .map((username) => [username, session.cursors[username]]),
+              ),
               requireAuth: session.authenticated,
             }),
             signal: controller.signal,
@@ -141,15 +166,17 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
                 : "Couldn't reach GitHub. Please try again.",
             );
           }
-          if (!isBatch(body)) {
+          if (
+            !isBatch(body) ||
+            Object.keys(body.cursors).length !== usernames.length ||
+            usernames.some((username) => !Object.hasOwn(body.cursors, username))
+          ) {
             throw new Error(
               "The server returned an invalid commit batch. Please try again.",
             );
           }
           if (controller.signal.aborted) return;
-          const allowed = new Set(
-            session.players.map((player) => player.username),
-          );
+          const allowed = new Set(usernames);
           if (
             body.commits.some(
               (commit) => !allowed.has(commit.author.toLowerCase()),
@@ -159,25 +186,19 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
               "GitHub returned a commit outside this player lineup.",
             );
           }
-          const commits = appendUniqueCommits(session.commits, body.commits);
+          const cursors = { ...session.cursors, ...body.cursors };
           const advanced =
-            JSON.stringify(session.cursors) !== JSON.stringify(body.cursors);
-          session = {
-            ...session,
-            commits,
-            cursors: body.cursors,
-            warnings: [...new Set([...session.warnings, ...body.warnings])],
-            exhausted: body.exhausted,
-            step:
-              targetStep < commits.length * 2 || body.exhausted
-                ? Math.min(targetStep, commits.length * 2)
-                : session.step,
-          };
-          updateGame(session);
-          if (targetStep < commits.length * 2 || session.exhausted) return;
+            JSON.stringify(session.cursors) !== JSON.stringify(cursors);
           if (!advanced) {
             throw new Error("The commit search didn't advance. Please retry.");
           }
+          session = {
+            ...session,
+            candidates: [...session.candidates, ...body.commits],
+            cursors,
+            warnings: [...new Set([...session.warnings, ...body.warnings])],
+          };
+          updateGame(session);
         }
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -200,11 +221,21 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
   const startGame = useCallback(
     (players: Player[], demo: boolean) => {
       setSetupPlayers(players);
+      const lineup = demo ? demoPlayers : normalizePlayers(players);
       const session: GameSession = {
-        players: demo ? demoPlayers : normalizePlayers(players),
-        commits: demo ? [...demoCommits] : [],
-        cursors: {},
-        exhausted: demo,
+        players: lineup,
+        commits: [],
+        candidates: demo ? [...demoCommits] : [],
+        cursors: demo
+          ? Object.fromEntries(
+              lineup.map(({ username }) => [
+                username,
+                { page: 1, exhausted: true },
+              ]),
+            )
+          : {},
+        exhausted: false,
+        exhaustedPlayers: [],
         step: 0,
         warnings: [],
         demo,
@@ -217,8 +248,8 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
       window.scrollTo(0, 0);
       if (!demo) {
         window.history.replaceState(null, "", partyUrl(players));
-        void fetchMore(session, 0);
       }
+      void fetchMore(session, 0);
     },
     [fetchMore, updateGame, viewer],
   );

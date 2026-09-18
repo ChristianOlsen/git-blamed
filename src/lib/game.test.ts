@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   appendUniqueCommits,
+  type CommitPool,
+  chooseNextRound,
   navigationDirection,
   normalizePlayers,
   partyUrl,
@@ -131,4 +133,186 @@ test("paging deduplicates commits and messages while preserving back history", (
     [card("a", "Oops"), card("c", "Oh no")],
   );
   assert.equal(original.length, 1);
+});
+
+function candidate(
+  id: string,
+  author: string,
+  message = `Commit ${id}`,
+): CommitCard {
+  return {
+    id,
+    author,
+    message,
+    avatarUrl: "",
+    url: "",
+    repository: "",
+    committedAt: "",
+  };
+}
+
+function commitPool(candidates: CommitCard[]): CommitPool {
+  return {
+    players: [{ username: "alice" }, { username: "bob" }],
+    commits: [],
+    candidates,
+    cursors: {
+      alice: { page: 2, exhausted: true },
+      bob: { page: 2, exhausted: true },
+    },
+  };
+}
+
+test("participants have equal probability despite a 100-to-1 commit imbalance", () => {
+  const pool = commitPool([
+    ...Array.from({ length: 100 }, (_, index) =>
+      candidate(`a${index}`, "alice"),
+    ),
+    candidate("b", "bob", "boring"),
+  ]);
+  const original = structuredClone(pool);
+  const counts = new Map<string, number>();
+  let draws = 0;
+  for (let index = 0; index < 1000; index++) {
+    const round = chooseNextRound(pool, () => {
+      draws++;
+      return index / 1000;
+    });
+    assert.equal(round.kind, "commit");
+    if (round.kind !== "commit") throw new Error("Expected a commit");
+    counts.set(round.commit.author, (counts.get(round.commit.author) ?? 0) + 1);
+  }
+  assert.deepEqual(Object.fromEntries(counts), { alice: 500, bob: 500 });
+  assert.equal(draws, 1000);
+  assert.deepEqual(pool, original);
+});
+
+test("random participant repeats are allowed without repeating commits or changing history", () => {
+  const pool = commitPool([
+    candidate("a1", "alice"),
+    candidate("a2", "alice"),
+    candidate("b1", "bob"),
+  ]);
+  const first = chooseNextRound(pool, () => 0);
+  assert.equal(first.kind, "commit");
+  if (first.kind !== "commit") throw new Error("Expected a commit");
+  const afterFirst = {
+    ...pool,
+    commits: [first.commit],
+    candidates: first.candidates,
+  };
+  const original = structuredClone(afterFirst);
+  const second = chooseNextRound(afterFirst, () => 0);
+  assert.equal(second.kind, "commit");
+  if (second.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(first.commit.id, "a1");
+  assert.equal(second.commit.id, "a2");
+  assert.equal(second.commit.author, first.commit.author);
+  assert.deepEqual(afterFirst, original);
+  assert.deepEqual(
+    chooseNextRound({
+      ...afterFirst,
+      commits: [...afterFirst.commits, second.commit],
+      candidates: second.candidates,
+    }),
+    { kind: "finished", usernames: ["alice"] },
+  );
+});
+
+test("depleted participants refill before any random draw; buffered authors need no new pages", () => {
+  const pool = commitPool([candidate("a1", "alice")]);
+  pool.cursors.bob = { page: 2, exhausted: false };
+  assert.deepEqual(
+    chooseNextRound(pool, () => {
+      throw new Error(
+        "Do not choose an author before everyone has a candidate",
+      );
+    }),
+    { kind: "fetch", usernames: ["bob"] },
+  );
+  assert.deepEqual(
+    chooseNextRound({
+      ...pool,
+      candidates: [...pool.candidates, candidate("duplicate", "bob", "seen")],
+      commits: [candidate("played", "alice", " SEEN ")],
+    }),
+    { kind: "fetch", usernames: ["bob"] },
+  );
+  const refilled = chooseNextRound(
+    {
+      ...pool,
+      candidates: [...pool.candidates, candidate("b1", "bob")],
+      cursors: { ...pool.cursors, bob: { page: 3, exhausted: true } },
+    },
+    () => 0.75,
+  );
+  assert.equal(refilled.kind, "commit");
+  if (refilled.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(refilled.commit.author, "bob");
+});
+
+test("the game stops as soon as anyone is exhausted, even if others have commits or pages left", () => {
+  const pool = commitPool([candidate("a1", "alice")]);
+  pool.cursors.alice = { page: 2, exhausted: false };
+  assert.deepEqual(chooseNextRound(pool), {
+    kind: "finished",
+    usernames: ["bob"],
+  });
+  assert.deepEqual(chooseNextRound({ ...pool, candidates: [] }), {
+    kind: "finished",
+    usernames: ["bob"],
+  });
+  assert.deepEqual(chooseNextRound(commitPool([])), {
+    kind: "finished",
+    usernames: ["alice", "bob"],
+  });
+});
+
+test("shared unseen messages remain eligible for either author, then are removed globally", () => {
+  const pool = commitPool([
+    candidate("a1", "alice", "same subject"),
+    candidate("a2", "alice"),
+    candidate("b1", "bob", " SAME SUBJECT "),
+  ]);
+  for (const [random, author] of [
+    [0, "alice"],
+    [0.75, "bob"],
+  ] as const) {
+    const round = chooseNextRound(pool, () => random);
+    assert.equal(round.kind, "commit");
+    if (round.kind !== "commit") throw new Error("Expected a commit");
+    assert.equal(round.commit.author, author);
+    assert.deepEqual(round.candidates, [candidate("a2", "alice")]);
+  }
+});
+
+test("ranking stays within the selected author and used SHAs or messages never return", () => {
+  const pool = commitPool([
+    candidate("used", "bob", "changed subject"),
+    candidate("copy", "bob", " SHOWN "),
+    candidate("a1", "alice", "funny ranked subject"),
+    candidate("b1", "bob", "first ranked bob subject"),
+    candidate("b2", "bob", "First Ranked Bob Subject"),
+    candidate("b3", "bob"),
+  ]);
+  pool.commits = [candidate("used", "alice", "shown")];
+  const round = chooseNextRound(pool, () => 0.5);
+  assert.equal(round.kind, "commit");
+  if (round.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(round.commit.id, "b1");
+  assert.deepEqual(
+    round.candidates.map((commit) => commit.id),
+    ["a1", "b3"],
+  );
+});
+
+test("new pools fetch all participants and reject a missing lineup", () => {
+  assert.deepEqual(chooseNextRound({ ...commitPool([]), cursors: {} }), {
+    kind: "fetch",
+    usernames: ["alice", "bob"],
+  });
+  assert.throws(
+    () => chooseNextRound({ ...commitPool([]), players: [] }),
+    /needs participants/,
+  );
 });

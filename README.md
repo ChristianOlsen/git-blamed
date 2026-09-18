@@ -49,8 +49,9 @@ Click **Connect GitHub** and paste a personal access token. No environment confi
 - Supply the entire list in the URL: `/?users=alice,bob,charlie`. Repeated `users` or `user` parameters also work, such as `/?users=alice&users=bob`. Starting a game updates the URL with the current list. Legacy `name` parameters are ignored.
 - Start immediately with public commits. Optionally connect the host's token to include accessible private repositories, or choose the demo.
 - Guess, reveal the author, then move on. **Enter / Space / Right / Down** advance the game; **Left / Up** revisit previous cards.
-- Messages are ranked with local text heuristics and shuffled with a preference for expressive, short subjects. Only the first line is shown; explanatory bodies and author trailers stay out of the guessing screen. Obvious merge and automated dependency-update noise is filtered, while ordinary short messages can still appear. Text is capped at 1,000 characters.
-- The game loads more pages as needed and avoids repeated SHAs and messages within the session. It stops honestly when the searchable source runs out rather than replaying messages or inventing replacements.
+- Each new round first picks a participant with equal probability, regardless of their commit count. Consecutive rounds can have the same author; equal chances do not guarantee equal totals. Previously shown rounds stay unchanged when navigating back and forth.
+- Within the selected participant's available commits, local text heuristics and randomness favor expressive, short subjects. Only the first line is shown; explanatory bodies and author trailers stay out of the guessing screen. Obvious merge and automated dependency-update noise is filtered, while ordinary short messages can still appear. Text is capped at 1,000 characters.
+- The game keeps an unused commit buffer for each participant and loads more pages only for depleted buffers. It avoids repeated SHAs and messages and stops as soon as **any participant** has no unused searchable commits left, rather than favoring those with more commits. A participant with no eligible commits prevents the game from starting. The demo follows the same selection and stopping rules.
 
 ## Permissions and privacy
 
@@ -75,13 +76,13 @@ The app calls GitHub's **commit search API**, anonymously for public games or wi
 - Anonymous search generally permits **10 requests per minute per server IP**; authenticated search generally permits **30 requests per minute**, subject to GitHub's current primary and secondary limits. One batch can make one search request for each of up to eight active users. `Retry-After`/rate-reset headers are honored in surfaced retry information.
 - Errors, rate limits, and GitHub's `incomplete_results` flag fail the **whole batch**. Cursors are unchanged on failure, so retrying does not silently skip a failed page. An empty filtered page can still have more pages to search.
 
-These limits explain why a game can run out even when the users have more commits elsewhere on GitHub. Changing the player list can start a different search; it cannot bypass GitHub's indexing or access rules.
+These limits explain why a participant can run out even when they have more commits elsewhere on GitHub. The game stops at that point, even if other participants still have unused commits. Changing the player list can start a different search; it cannot bypass GitHub's indexing or access rules.
 
 ## Backend contract
 
 - `POST /api/auth/token` validates JSON `{ "token": "..." }` using GitHub's `/user` endpoint and returns only `{ login, avatarUrl }`. It does not create a cookie or retain the token.
 - `POST /api/commits` accepts JSON `{ "usernames": ["alice", "bob"], "cursors": {}, "requireAuth": false }` without sign-in. The API accepts 1–8 distinct valid usernames and normalizes them to lowercase; the game UI requires at least two. `requireAuth: false` pins the game to public results; `true` requires an `Authorization: Bearer ...` header. When `requireAuth` is omitted, a supplied token is used, otherwise the search is public. Rejected tokens never fall back to public access.
-- A successful batch is `{ commits, cursors, warnings, exhausted }`. Each commit is `{ id, message, author, avatarUrl, url, repository, committedAt }`, where `id` is the SHA and `author` is the verified lowercase linked author login.
+- A successful batch is `{ commits, cursors, warnings, exhausted }`. `exhausted` means all requested search cursors are exhausted, not that the buffered commits have been used. Each commit is `{ id, message, author, avatarUrl, url, repository, committedAt }`, where `id` is the SHA and `author` is the verified lowercase linked author login.
 - Each cursor is `{ page, exhausted }`: `page` is the **next** page, missing means page 1, and an exhausted cursor makes no request. Live pages are 1–10; an exhausted cursor may have page 11. Send returned cursors unchanged to continue. Requests may mention only their specified usernames.
 - Failure responses are non-2xx JSON `{ error, retryAfter? }`; `retryAfter` is seconds and is also sent as an HTTP header. Never advance local cursors on an error. Identical warnings can recur across stateless requests; clients should deduplicate them.
 - Requests must come from the app's own origin. Token requests also require HTTPS (HTTP is permitted on localhost only). No credentialed CORS is enabled. Request bodies, usernames, pagination, upstream records, URLs, and response sizes are validated; upstream calls have timeouts.

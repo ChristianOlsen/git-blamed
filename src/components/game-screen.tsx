@@ -124,15 +124,20 @@ export function GameScreen({
                   ? "Demo complete"
                   : game.commits.length
                     ? "No more commits"
-                    : "No commits found"}
+                    : "Not enough commits"}
               </h1>
-              {!game.demo && (
+              <p>
+                No unused commits remain for{" "}
+                {game.exhaustedPlayers
+                  .map((username) => `@${username}`)
+                  .join(", ")}
+                . The game ends when anyone runs out.
+              </p>
+              {!game.demo && !game.commits.length && (
                 <p>
-                  {game.commits.length
-                    ? "You've reached the end of GitHub's available search results."
-                    : game.authenticated
-                      ? "Check the usernames, repository access, and organization SSO permissions."
-                      : "Check the usernames and whether their commits are public and indexed by GitHub."}
+                  {game.authenticated
+                    ? "Check the usernames, repository access, and organization SSO permissions."
+                    : "Check the usernames and whether their commits are public and indexed by GitHub."}
                 </p>
               )}
             </div>
