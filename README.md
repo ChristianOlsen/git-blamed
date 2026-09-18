@@ -13,6 +13,24 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000), add GitHub usernames, and play with **real public commits**. No configuration or sign-in is required. The optional **demo uses fictitious commits and authors**; it never substitutes fake commits into a real game.
 
+## Deploy to Vercel
+
+The app needs a server for its commit and token APIs; GitHub Pages cannot host it.
+
+Create a Vercel project for this repository using the **Next.js** framework preset, the repository root, and **Node.js 24.x**. Add these repository secrets under GitHub **Settings -> Secrets and variables -> Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `VERCEL_TOKEN` | A [Vercel access token](https://vercel.com/account/tokens) with access to the project. |
+| `VERCEL_ORG_ID` | The project's Vercel team/account ID. |
+| `VERCEL_PROJECT_ID` | The Vercel project ID. |
+
+The IDs are available in Vercel's team and project settings, or as `orgId` and `projectId` in `.vercel/project.json` if the project is already linked locally. Do not commit that directory or any tokens.
+
+`.github/workflows/nextjs.yml` deploys pushes to `main`, or can be run manually on `main`. It pulls production settings, installs dependencies with `npm ci`, builds the full Next.js app with Vercel CLI, runs the tests, and deploys the prebuilt output. These secrets authorize deployment only; the app still needs no environment configuration for public commits or the optional PAT connection.
+
+`vercel.json` selects npm explicitly because the repository contains both npm and pnpm lockfiles. It also disables Vercel's automatic Git deployments so GitHub Actions is the only deployment path. The workflow does not deploy to GitHub Pages.
+
 ## Optional GitHub connection
 
 Click **Connect GitHub** and paste a personal access token. No environment configuration is needed. The app validates the token with GitHub and uses its repository access for subsequent games.
