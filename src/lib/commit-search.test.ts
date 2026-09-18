@@ -285,29 +285,43 @@ test("empty filtered pages still advance until actual search exhaustion", async 
   assert.deepEqual(input, snapshot);
 });
 
-test("the 1000-result boundary stops pagination with an honest warning", async () => {
-  const result = await searchCommitBatch(
-    {
-      usernames: ["alice"],
-      cursors: { alice: { page: 10, exhausted: false } },
-    },
-    "token",
-    async () =>
-      searchResponse(
-        Array.from({ length: 100 }, (_, i) => item(i)),
-        1250,
-      ),
+test("searches above the 1000-result cap advance without a warning", async () => {
+  const result = await searchCommitBatch(request, "token", async () =>
+    searchResponse(
+      Array.from({ length: 100 }, (_, i) => item(i)),
+      1250,
+    ),
   );
-  assert.deepEqual(result.cursors, { alice: { page: 11, exhausted: true } });
-  assert.equal(result.exhausted, true);
-  assert.match(result.warnings[0], /1,000.*not complete repository history/);
-  const skipped = await searchCommitBatch(
-    { usernames: ["alice"], cursors: result.cursors },
-    "token",
-    async () => assert.fail("exhausted cursors must not issue a request"),
-  );
-  assert.deepEqual(skipped.commits, []);
-  assert.equal(skipped.exhausted, true);
+  assert.deepEqual(result.cursors, { alice: { page: 2, exhausted: false } });
+  assert.equal(result.exhausted, false);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("the 1000-result boundary stops pagination without a warning", async () => {
+  for (const totalCount of [1000, 1250]) {
+    const result = await searchCommitBatch(
+      {
+        usernames: ["alice"],
+        cursors: { alice: { page: 10, exhausted: false } },
+      },
+      "token",
+      async () =>
+        searchResponse(
+          Array.from({ length: 100 }, (_, i) => item(i)),
+          totalCount,
+        ),
+    );
+    assert.deepEqual(result.cursors, { alice: { page: 11, exhausted: true } });
+    assert.equal(result.exhausted, true);
+    assert.deepEqual(result.warnings, []);
+    const skipped = await searchCommitBatch(
+      { usernames: ["alice"], cursors: result.cursors },
+      "token",
+      async () => assert.fail("exhausted cursors must not issue a request"),
+    );
+    assert.deepEqual(skipped.commits, []);
+    assert.equal(skipped.exhausted, true);
+  }
 });
 
 test("all users need to be exhausted; usernames cannot leak across searches", async () => {

@@ -83,7 +83,7 @@ Do not share a host account or token between unrelated groups. Connected games u
 
 The app calls GitHub's **commit search API**, anonymously for public games or with the host's personal access token for connected games, separately for each requested `author:username`, newest committer date first, with up to **100 results per page per user**.
 
-- GitHub exposes **at most 1,000 results per search** (10 pages). A warning identifies this limit; the app never claims it has traversed complete repository history.
+- GitHub exposes **at most 1,000 results per search** (10 pages). Pagination stops at this limit without a warning; this is not complete repository history.
 - Commit search depends on GitHub's search index and **default-branch** data. Unmerged feature branches, newly pushed or unindexed commits, inaccessible repositories, and commits without a matching linked GitHub author can be absent. This is not a `git log` over every branch.
 - Search results are not a frozen snapshot. New commits, rebases, deleted repositories, and indexing changes can shift page boundaries while you play. Deduplication prevents repeat cards but cannot recover every commit displaced by a changing index.
 - Access depends on the host's actual permissions and the token's repository access. Organization token restrictions, approval requirements, and **SSO authorization** can exclude private organization data. Authorize the token for the organization when required. Detectable partial SSO results are treated as an error; the app cannot detect every repository excluded by GitHub.

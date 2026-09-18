@@ -237,15 +237,6 @@ export async function searchCommitBatch(
         if (commit) commits.push(commit);
       }
       const warnings: string[] = [];
-      if (data.total_count > PER_PAGE * MAX_PAGE) {
-        warnings.push(
-          `@${username}: GitHub exposes only the first 1,000 search results. Older commits beyond that cap cannot be loaded; this is not complete repository history.`,
-        );
-      } else if (cursor.page === MAX_PAGE) {
-        warnings.push(
-          `@${username}: reached GitHub's 1,000-result search boundary. No further pages can be requested; this is not complete repository history.`,
-        );
-      }
       if (data.total_count === 0 && cursor.page === 1) {
         warnings.push(
           searchToken
