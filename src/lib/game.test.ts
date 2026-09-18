@@ -5,6 +5,7 @@ import {
   navigationDirection,
   normalizePlayers,
   partyUrl,
+  playersFromInput,
   playersFromParams,
   validatePlayers,
 } from "./game.ts";
@@ -17,11 +18,28 @@ test("URL players accept comma-separated and repeated usernames", () => {
       user: ["carol", "bob"],
       name: ["Al", "B"],
     }),
-    [
-      { username: "alice", displayName: "Al" },
-      { username: "bob", displayName: "B" },
-      { username: "carol", displayName: "" },
-    ],
+    [{ username: "alice" }, { username: "bob" }, { username: "carol" }],
+  );
+  assert.deepEqual(
+    playersFromParams({ users: ["alice,bob", "carol", "alice"] }),
+    [{ username: "alice" }, { username: "bob" }, { username: "carol" }],
+  );
+});
+
+test("username input accepts commas and new lines without hiding duplicates or invalid names", () => {
+  assert.deepEqual(playersFromInput(" Alice,\n@Bob\r\ncarol, ,"), [
+    { username: "alice" },
+    { username: "bob" },
+    { username: "carol" },
+  ]);
+  assert.deepEqual(playersFromInput(""), []);
+  assert.match(
+    validatePlayers(playersFromInput("alice,ALICE")) ?? "",
+    /more than once/,
+  );
+  assert.match(
+    validatePlayers(playersFromInput("alice,bad name")) ?? "",
+    /valid GitHub username/,
   );
 });
 
@@ -35,11 +53,11 @@ test("invalid and oversized URL lineups aren't silently hidden", () => {
 });
 
 test("lineup validation normalizes, disallows duplicate and invalid names", () => {
-  const player = (username: string) => ({ username, displayName: "" });
+  const player = (username: string) => ({ username });
   assert.equal(validatePlayers([player("@Alice"), player("bob-2")]), null);
   assert.match(
     validatePlayers([player("@Alice"), player("ALICE")]) ?? "",
-    /already/,
+    /more than once/,
   );
   for (const invalid of [
     "",
@@ -54,17 +72,29 @@ test("lineup validation normalizes, disallows duplicate and invalid names", () =
   assert.notEqual(validatePlayers([player("alice")]), null);
 });
 
-test("party URLs round-trip optional display names without losing alignment", () => {
+test("party URLs round-trip the full username list without display names", () => {
   const players = [
-    { username: "@Alice", displayName: "" },
-    { username: "BOB", displayName: "B & B" },
+    { username: "@Alice" },
+    { username: "BOB" },
+    { username: "carol" },
   ];
+  assert.equal(partyUrl(players), "/?users=alice,bob,carol");
   const url = new URL(partyUrl(players), "http://localhost");
   const decoded = playersFromParams({
     users: url.searchParams.get("users") ?? "",
-    name: url.searchParams.getAll("name"),
+    name: ["Not Alice", "Not Bob"],
   });
   assert.deepEqual(decoded, normalizePlayers(players));
+  assert.deepEqual([...url.searchParams.keys()], ["users"]);
+});
+
+test("invalid URL input cannot add extra query parameters when shared", () => {
+  const url = new URL(
+    partyUrl([{ username: "alice&admin=true" }]),
+    "http://localhost",
+  );
+  assert.equal(url.searchParams.get("users"), "alice&admin=true");
+  assert.equal(url.searchParams.has("admin"), false);
 });
 
 test("keyboard navigation supports both axes and avoids repeat or input hijacking", () => {

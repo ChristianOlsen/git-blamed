@@ -1,6 +1,6 @@
 # git blamed
 
-A GitHub-themed party game: read a commit message wildly out of context, guess which friend wrote it, then reveal the author. No AI, database, or drinking rules required.
+A GitHub commit guessing game. Read a commit message, guess the author, then reveal their GitHub username.
 
 ## Run locally
 
@@ -25,8 +25,8 @@ When OAuth is configured, `APP_URL` is the trusted canonical origin, not a value
 
 ## Play
 
-- Add **2–8 GitHub usernames**, with optional display names. Only those accounts' linked author identities are eligible—not repository owners, raw author-name strings, or committers.
-- Prefill players with `/?users=alice,bob`, or `/?user=alice&user=bob`. Optional repeated `name` parameters align with the usernames in order, for example `/?user=alice&user=bob&name=Alice&name=Bobby`. Display names are labels, never GitHub search identities.
+- Enter **2–8 GitHub usernames**, separated by commas or new lines. GitHub usernames are used throughout; there are no display names. Only those accounts' linked author identities are eligible—not repository owners, raw author-name strings, or committers.
+- Supply the entire list in the URL: `/?users=alice,bob,charlie`. Repeated `users` or `user` parameters also work, such as `/?users=alice&users=bob`. Starting a game updates the URL with the current list. Legacy `name` parameters are ignored.
 - Start immediately with public commits. Optionally sign in as the host to include accessible private repositories, or choose the demo.
 - Guess, reveal the author, then move on. **Enter / Space / Right / Down** advance the game; **Left / Up** revisit previous cards.
 - Messages are ranked with local text heuristics and shuffled with a preference for expressive, short subjects. Only the first line is shown; explanatory bodies and author trailers stay out of the guessing screen. Obvious merge and automated dependency-update noise is filtered, while ordinary short messages can still appear. Text is capped at 1,000 characters.

@@ -1,6 +1,5 @@
 export type Player = {
   username: string;
-  displayName: string;
 };
 
 export type Viewer = {

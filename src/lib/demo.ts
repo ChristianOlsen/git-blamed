@@ -1,10 +1,10 @@
 import type { CommitCard, Player } from "./types";
 
 export const demoPlayers: Player[] = [
-  { username: "demo-maya", displayName: "Maya" },
-  { username: "demo-alex", displayName: "Alex" },
-  { username: "demo-sam", displayName: "Sam" },
-  { username: "demo-jules", displayName: "Jules" },
+  { username: "demo-maya" },
+  { username: "demo-alex" },
+  { username: "demo-sam" },
+  { username: "demo-jules" },
 ];
 
 const messages = [

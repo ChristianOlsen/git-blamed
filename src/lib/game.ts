@@ -6,19 +6,25 @@ export const MAX_PLAYERS = 8;
 export type SearchParams = Record<string, string | string[] | undefined>;
 
 export function playersFromParams(params: SearchParams): Player[] {
-  const users = [
-    ...values(params.users).flatMap((value) => value.split(",")),
-    ...values(params.user),
-  ];
-  const names = values(params.name);
+  const players = playersFromInput(
+    [...values(params.users), ...values(params.user)].join(","),
+  );
   const seen = new Set<string>();
 
-  return users.flatMap((value, index) => {
-    const username = value.trim().replace(/^@/, "").toLowerCase();
-    if (!username || seen.has(username)) return [];
+  return players.filter(({ username }) => {
+    if (seen.has(username)) return false;
     seen.add(username);
-    return [{ username, displayName: (names[index] ?? "").slice(0, 40) }];
+    return true;
   });
+}
+
+export function playersFromInput(value: string): Player[] {
+  return normalizePlayers(
+    value
+      .split(/[,\r\n]+/)
+      .filter((username) => username.trim())
+      .map((username) => ({ username })),
+  );
 }
 
 function values(value: string | string[] | undefined): string[] {
@@ -26,10 +32,9 @@ function values(value: string | string[] | undefined): string[] {
 }
 
 export function validatePlayers(players: Player[]): string | null {
-  if (players.length < 2)
-    return "Every good blame game needs at least 2 players.";
+  if (players.length < 2) return "Enter at least 2 GitHub usernames.";
   if (players.length > MAX_PLAYERS) {
-    return `There's room for up to ${MAX_PLAYERS} suspects in this party.`;
+    return `Enter up to ${MAX_PLAYERS} GitHub usernames.`;
   }
   const seen = new Set<string>();
   for (const player of players) {
@@ -39,10 +44,7 @@ export function validatePlayers(players: Player[]): string | null {
         ? `"${username}" isn't a valid GitHub username.`
         : "Add a GitHub username for every player.";
     }
-    if (seen.has(username)) return `@${username} is already in the lineup.`;
-    if (player.displayName.length > 40) {
-      return "Keep display names to 40 characters or less.";
-    }
+    if (seen.has(username)) return `@${username} is listed more than once.`;
     seen.add(username);
   }
   return null;
@@ -51,23 +53,12 @@ export function validatePlayers(players: Player[]): string | null {
 export function normalizePlayers(players: Player[]): Player[] {
   return players.map((player) => ({
     username: player.username.trim().replace(/^@/, "").toLowerCase(),
-    displayName: player.displayName.trim(),
   }));
 }
 
 export function partyUrl(players: Player[]): string {
   const normalized = normalizePlayers(players);
-  const params = new URLSearchParams({
-    users: normalized.map((player) => player.username).join(","),
-  });
-  if (normalized.some((player) => player.displayName)) {
-    for (const player of normalized) params.append("name", player.displayName);
-  }
-  return `/?${params.toString()}`;
-}
-
-export function playerName(player: Player): string {
-  return player.displayName || player.username;
+  return `/?users=${normalized.map((player) => encodeURIComponent(player.username)).join(",")}`;
 }
 
 export function initials(name: string): string {
