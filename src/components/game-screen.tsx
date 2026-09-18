@@ -76,6 +76,11 @@ export function GameScreen({
 
       <main className="game-main">
         {!finished && <p className="round-label">Round {index + 1}</p>}
+        <ul className="participants" aria-label="Participants">
+          {game.players.map((player) => (
+            <li key={player.username}>@{player.username}</li>
+          ))}
+        </ul>
         <div
           className="game-stage"
           aria-live="polite"

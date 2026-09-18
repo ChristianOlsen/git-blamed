@@ -259,6 +259,21 @@ svg {
   color: var(--muted);
   font-size: 14px;
 }
+.participants {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+.participants li {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .game-stage {
   display: grid;
   place-items: center;
