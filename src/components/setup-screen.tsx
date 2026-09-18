@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight, Globe, LockKeyhole, LogOut } from "lucide-react";
 import { useId, useState } from "react";
 import { MAX_PLAYERS, playersFromInput, validatePlayers } from "@/lib/game";

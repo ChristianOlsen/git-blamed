@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowUpRight, LoaderCircle, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
