@@ -147,20 +147,25 @@ export function chooseNextRound(
     ({ username }) =>
       Object.hasOwn(pool.cursors, username) && pool.cursors[username].exhausted,
   );
-  if (exhausted.length) {
+  // Players with nothing buffered and pages left still hold up the draw, so an
+  // empty queue never costs them a turn. Players who have truly run out drop
+  // out of the rotation and the rest keep playing.
+  const pending = missing.filter((player) => !exhausted.includes(player));
+  if (pending.length) {
+    return {
+      kind: "fetch",
+      usernames: pending.map(({ username }) => username),
+    };
+  }
+  const active = queues.filter((queue) => queue.length);
+  if (!active.length) {
     return {
       kind: "finished",
       usernames: exhausted.map(({ username }) => username),
     };
   }
-  if (missing.length) {
-    return {
-      kind: "fetch",
-      usernames: missing.map(({ username }) => username),
-    };
-  }
 
-  const commit = queues[Math.floor(random() * queues.length)]?.[0];
+  const commit = active[Math.floor(random() * active.length)]?.[0];
   if (!commit) {
     throw new Error("Unable to select a commit for this round.");
   }

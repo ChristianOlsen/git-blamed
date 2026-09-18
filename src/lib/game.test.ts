@@ -210,13 +210,21 @@ test("random participant repeats are allowed without repeating commits or changi
   assert.equal(second.commit.id, "a2");
   assert.deepEqual(second.commit.authors, first.commit.authors);
   assert.deepEqual(afterFirst, original);
+  const third = chooseNextRound({
+    ...afterFirst,
+    commits: [...afterFirst.commits, second.commit],
+    candidates: second.candidates,
+  });
+  assert.equal(third.kind, "commit");
+  if (third.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(third.commit.id, "b1");
   assert.deepEqual(
     chooseNextRound({
       ...afterFirst,
-      commits: [...afterFirst.commits, second.commit],
-      candidates: second.candidates,
+      commits: [...afterFirst.commits, second.commit, third.commit],
+      candidates: third.candidates,
     }),
-    { kind: "finished", usernames: ["alice"] },
+    { kind: "finished", usernames: ["alice", "bob"] },
   );
 });
 
@@ -270,21 +278,33 @@ test("pending original PR commits keep a player searchable after indexed search 
   });
 });
 
-test("the game stops as soon as anyone is exhausted, even if others have commits or pages left", () => {
+test("the game keeps going while anyone has commits left and only ends when everyone runs out", () => {
   const pool = commitPool([candidate("a1", "alice")]);
   pool.cursors.alice = initialCommitCursor();
-  assert.deepEqual(chooseNextRound(pool), {
-    kind: "finished",
-    usernames: ["bob"],
-  });
+  const round = chooseNextRound(pool, () => 0);
+  assert.equal(round.kind, "commit");
+  if (round.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(round.commit.id, "a1");
   assert.deepEqual(chooseNextRound({ ...pool, candidates: [] }), {
-    kind: "finished",
-    usernames: ["bob"],
+    kind: "fetch",
+    usernames: ["alice"],
   });
   assert.deepEqual(chooseNextRound(commitPool([])), {
     kind: "finished",
     usernames: ["alice", "bob"],
   });
+});
+
+test("an exhausted player never takes a turn once their queue is empty", () => {
+  const pool = commitPool([candidate("a1", "alice"), candidate("a2", "alice")]);
+  const authors = new Set<string>();
+  for (let index = 0; index < 100; index++) {
+    const round = chooseNextRound(pool, () => index / 100);
+    assert.equal(round.kind, "commit");
+    if (round.kind !== "commit") throw new Error("Expected a commit");
+    authors.add(round.commit.authors[0].login);
+  }
+  assert.deepEqual([...authors], ["alice"]);
 });
 
 test("shared unseen messages remain eligible for either author, then are removed globally", () => {
@@ -397,13 +417,21 @@ test("shared candidates stay deduplicated across player queues and cannot repeat
   );
   if (second.kind !== "commit") throw new Error("Expected a shared commit");
   assert.equal(second.commit.id, "shared");
+  const third = chooseNextRound({
+    ...pool,
+    commits: [first.commit, second.commit],
+    candidates: [...second.candidates, shared],
+  });
+  assert.equal(third.kind, "commit");
+  if (third.kind !== "commit") throw new Error("Expected bob's last commit");
+  assert.equal(third.commit.id, "b1");
   assert.deepEqual(
     chooseNextRound({
       ...pool,
-      commits: [first.commit, second.commit],
-      candidates: [...second.candidates, shared],
+      commits: [first.commit, second.commit, third.commit],
+      candidates: third.candidates,
     }),
-    { kind: "finished", usernames: ["alice"] },
+    { kind: "finished", usernames: ["alice", "bob"] },
   );
 });
 

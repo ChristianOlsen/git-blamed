@@ -147,7 +147,7 @@ export function GameScreen({
                 {game.exhaustedPlayers
                   .map((username) => `@${username}`)
                   .join(", ")}
-                . The game ends when anyone runs out.
+                . The game ends when everyone runs out.
               </p>
               {!game.demo && !game.commits.length && (
                 <p>
