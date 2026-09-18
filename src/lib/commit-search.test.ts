@@ -4,6 +4,7 @@ import { BackendError } from "./backend-errors.ts";
 import { authorCommit, authorGraph } from "./commit-author-fixtures.ts";
 import {
   isCommitNoise,
+  RANKING_JITTER,
   rankCommits,
   scoreMessage,
   searchCommitBatch,
@@ -511,4 +512,137 @@ test("indexed author verification failure does not consume or mutate a page and 
   assert.deepEqual(result.cursors.alice, { page: 3, exhausted: true });
   assert.deepEqual(paths.slice(0, 2), paths.slice(2));
   assert.deepEqual(input, snapshot);
+});
+
+const FUNNY = [
+  "sorry, my fault, I broke prod again",
+  "don't ask me why this works, it just does",
+  "why does this work now?!",
+  'Revert "Revert "Add caching""',
+  "fix the fix that fixed the fix",
+  "ok WHO thought nested ternaries were a good idea",
+  "temporary hack, will remove before friday (lie)",
+  "attempt 7 at making the tests pass",
+];
+
+const ORDINARY = [
+  "Add retry logic to the payment webhook handler",
+  "Refactor the invoice renderer to share layout code",
+  "feat(auth): add SSO login for enterprise tenants",
+];
+
+const MACHINE_WRITTEN = [
+  "PROJ-1421",
+  "v2.14.0",
+  "Update README.md",
+  "wip",
+  "fix",
+  "cleanup",
+  "typo",
+  "a1b2c3d4 rebase onto 9f8e7d6",
+];
+
+test("scoring puts confessional subjects above ordinary work above machine output", () => {
+  const worstFunny = Math.min(...FUNNY.map(scoreMessage));
+  const bestOrdinary = Math.max(...ORDINARY.map(scoreMessage));
+  const bestMachine = Math.max(...MACHINE_WRITTEN.map(scoreMessage));
+  assert.ok(
+    worstFunny > bestOrdinary,
+    `funny floor ${worstFunny} must beat ordinary ceiling ${bestOrdinary}`,
+  );
+  assert.ok(
+    bestOrdinary > bestMachine,
+    `ordinary ceiling ${bestOrdinary} must beat machine ceiling ${bestMachine}`,
+  );
+  for (const message of MACHINE_WRITTEN) {
+    assert.ok(scoreMessage(message) < 0, `${message} should score below zero`);
+  }
+});
+
+test("repeated signals accumulate instead of collapsing into one bucket", () => {
+  assert.ok(
+    scoreMessage("why oh why did the cache stop working") >
+      scoreMessage("why did the cache stop working"),
+  );
+  assert.ok(
+    scoreMessage("sorry, this is a stupid hack, please forgive me") >
+      scoreMessage("sorry, this is a hack"),
+  );
+});
+
+test("jitter reshuffles near ties but never lifts a machine subject over a good one", () => {
+  const gap =
+    scoreMessage("sorry, my fault, I broke prod again") -
+    scoreMessage("Update README.md");
+  assert.ok(gap > RANKING_JITTER, `gap ${gap} must exceed ${RANKING_JITTER}`);
+  const neighbours = ORDINARY.map(scoreMessage);
+  assert.ok(Math.max(...neighbours) - Math.min(...neighbours) < RANKING_JITTER);
+});
+
+test("technical acronyms read as vocabulary, not as shouting", () => {
+  const withAcronyms = scoreMessage("Fix HTTP retries in the JSON parser");
+  const without = scoreMessage("Fix the retries in the parser");
+  assert.ok(
+    Math.abs(withAcronyms - without) < 1,
+    `${withAcronyms} and ${without} should be close`,
+  );
+  assert.ok(scoreMessage("FINALLY got the build green") > withAcronyms + 2);
+  assert.ok(
+    scoreMessage("FINALLY got the build green") >
+      scoreMessage("FIX THE WHOLE BUILD ALREADY"),
+  );
+});
+
+test("a confessing body helps a little and a changelog body hurts", () => {
+  const subject = "Move the retry helper into its own module";
+  const plain = scoreMessage(subject);
+  const confessing = scoreMessage(
+    `${subject}\n\nI have no idea why this fixes it, sorry.`,
+  );
+  const changelog = scoreMessage(
+    `${subject}\n\n${"- updated a dependency\n".repeat(60)}`,
+  );
+  assert.ok(confessing > plain);
+  assert.ok(
+    confessing - plain <= 1.5,
+    `body bonus ${confessing - plain} must stay small`,
+  );
+  assert.ok(changelog < plain);
+});
+
+test("ranking is a stable, pure ordering of the funniest commits first", () => {
+  const card = (message: string) => ({
+    id: message,
+    authors: [{ login: "alice", avatarUrl: "" }],
+    message,
+    url: "",
+    repository: "owner/repository",
+    committedAt: "2026-09-01T12:30:00Z",
+  });
+  const commits = [
+    ...MACHINE_WRITTEN.map(card),
+    ...ORDINARY.map(card),
+    ...FUNNY.map(card),
+  ];
+  const snapshot = structuredClone(commits);
+  const ranked = rankCommits(commits, () => 0);
+  assert.deepEqual(commits, snapshot);
+  assert.deepEqual(
+    ranked
+      .slice(0, FUNNY.length)
+      .map(({ id }) => id)
+      .sort(),
+    [...FUNNY].sort(),
+  );
+  assert.deepEqual(
+    ranked
+      .slice(-MACHINE_WRITTEN.length)
+      .map(({ id }) => id)
+      .sort(),
+    [...MACHINE_WRITTEN].sort(),
+  );
+  assert.deepEqual(
+    rankCommits(commits, () => 0),
+    ranked,
+  );
 });
