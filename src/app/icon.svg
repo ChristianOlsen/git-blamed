@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>gitblamed</title>
+  <rect width="64" height="64" rx="16" fill="#0d1117"/>
+  <g fill="none" stroke="#7ee787" stroke-width="5" stroke-linecap="round">
+    <path d="M22 19v26m0-9c0-8 20-4 20-17"/>
+    <circle cx="22" cy="17" r="5" fill="#0d1117"/>
+    <circle cx="22" cy="47" r="5" fill="#0d1117"/>
+    <circle cx="42" cy="17" r="5" fill="#0d1117"/>
+  </g>
+</svg>
