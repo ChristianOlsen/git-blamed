@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BackendError } from "./backend-errors.ts";
+import { authorCommit, authorGraph } from "./commit-author-fixtures.ts";
 import {
   isCommitNoise,
   rankCommits,
@@ -110,7 +111,7 @@ test("valid usernames that match object properties still begin at page one", asy
       return searchResponse([item(1, "constructor")]);
     },
   );
-  assert.equal(result.commits[0].author, "constructor");
+  assert.equal(result.commits[0].authors[0].login, "constructor");
   assert.deepEqual(result.cursors.constructor, { page: 2, exhausted: true });
 });
 
@@ -136,7 +137,7 @@ test("queries only requested authors with bounded GETs, timeout and no-store", a
   };
   const result = await searchCommitBatch(request, "test-token", fetcher);
   assert.equal(result.commits.length, 1);
-  assert.equal(result.commits[0].author, "alice");
+  assert.equal(result.commits[0].authors[0].login, "alice");
   assert.equal(
     result.commits[0].url,
     `https://github.com/owner/repository/commit/${item().sha}`,
@@ -155,7 +156,7 @@ test("unsigned searches fetch public commits without an Authorization header", a
       return searchResponse([item()]);
     },
   );
-  assert.equal(result.commits[0].author, "alice");
+  assert.equal(result.commits[0].authors[0].login, "alice");
   assert.deepEqual(result.cursors.alice, { page: 2, exhausted: true });
 });
 
@@ -230,7 +231,7 @@ test("linked author, not committer or raw git author, decides attribution", asyn
     ]),
   );
   assert.deepEqual(
-    result.commits.map((commit) => commit.author),
+    result.commits.map((commit) => commit.authors[0].login),
     ["alice"],
   );
   assert.equal(result.commits[0].id, item(1).sha);
@@ -252,7 +253,7 @@ test("fork duplicates are deduplicated by SHA and obvious noise is removed", asy
 });
 
 test("only the subject is shown, keeping explanatory bodies and author trailers hidden", async () => {
-  const result = await searchCommitBatch(request, "token", async () =>
+  const result = await searchCommitBatch(request, undefined, async () =>
     searchResponse([
       item(
         1,
@@ -340,7 +341,9 @@ test("all users need to be exhausted; usernames cannot leak across searches", as
     },
   );
   assert.equal(result.exhausted, false);
-  assert.ok(result.commits.every((commit) => commit.author === "bob"));
+  assert.ok(
+    result.commits.every((commit) => commit.authors[0].login === "bob"),
+  );
   assert.deepEqual(result.cursors.alice, { page: 2, exhausted: true });
 });
 
@@ -433,4 +436,79 @@ test("a short page contradicting the search count fails instead of claiming exha
     searchCommitBatch(request, "token", async () => searchResponse([], 200)),
     { status: 503, retryAfter: 30 },
   );
+});
+
+test("indexed bot-primary and null-primary commits admit verified coauthors and return every linked author", async () => {
+  const calls: string[] = [];
+  const result = await searchCommitBatch(
+    request,
+    "token",
+    async (url, options) => {
+      const path = new URL(String(url)).pathname;
+      calls.push(path);
+      return path === "/graphql"
+        ? Response.json(authorGraph(options, ["Copilot", "Alice", "Bob", null]))
+        : searchResponse([authorCommit(1), authorCommit(2, null)]);
+    },
+  );
+  assert.equal(result.commits.length, 2);
+  for (const card of result.commits) {
+    assert.equal(card.message, "finally the thing works!");
+    assert.deepEqual(
+      card.authors.map(({ login }) => login),
+      ["copilot", "alice", "bob"],
+    );
+  }
+  assert.deepEqual(calls, ["/search/commits", "/graphql"]);
+});
+
+test("public indexed games never enrich trailers, even with an available token", async () => {
+  for (const token of [undefined, "session-token"]) {
+    const result = await searchCommitBatch(
+      { ...request, requireAuth: false },
+      token,
+      async (url, options) => {
+        assert.equal(new URL(String(url)).pathname, "/search/commits");
+        assert.equal(new Headers(options?.headers).has("authorization"), false);
+        return searchResponse([authorCommit(1), authorCommit(2, "Alice")]);
+      },
+    );
+    assert.equal(result.commits.length, 1);
+    assert.equal(result.commits[0].id, authorCommit(2).sha);
+    assert.deepEqual(
+      result.commits[0].authors.map(({ login }) => login),
+      ["alice"],
+    );
+  }
+});
+
+test("indexed author verification failure does not consume or mutate a page and retries it", async () => {
+  const input = {
+    ...request,
+    cursors: { alice: { page: 2, exhausted: false } },
+  };
+  const snapshot = structuredClone(input);
+  let fail = true;
+  const paths: string[] = [];
+  const fetcher: Fetcher = async (url, options) => {
+    const parsed = new URL(String(url));
+    paths.push(parsed.pathname + parsed.search);
+    if (parsed.pathname === "/search/commits") {
+      return searchResponse([authorCommit()], 101);
+    }
+    return Response.json(
+      fail
+        ? { data: null, errors: [{ type: "FORBIDDEN" }] }
+        : authorGraph(options),
+    );
+  };
+  await assert.rejects(searchCommitBatch(input, "token", fetcher), {
+    status: 403,
+  });
+  assert.deepEqual(input, snapshot);
+  fail = false;
+  const result = await searchCommitBatch(input, "token", fetcher);
+  assert.deepEqual(result.cursors.alice, { page: 3, exhausted: true });
+  assert.deepEqual(paths.slice(0, 2), paths.slice(2));
+  assert.deepEqual(input, snapshot);
 });

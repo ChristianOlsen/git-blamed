@@ -153,6 +153,12 @@ export function SetupScreen({
               </>
             )}
           </div>
+          {!viewer && !usingLocalToken && (
+            <p className="coauthor-help">
+              Connect GitHub to include verified co-authors. Without a token,
+              only primary commit authors are included.
+            </p>
+          )}
         </section>
       </main>
     </div>

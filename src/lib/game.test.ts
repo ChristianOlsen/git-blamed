@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { initialCommitCursor } from "./commit-cursor.ts";
 import {
   appendUniqueCommits,
   type CommitPool,
   chooseNextRound,
+  matchingCommitAuthors,
   navigationDirection,
   normalizePlayers,
   partyUrl,
@@ -116,8 +118,7 @@ test("paging deduplicates commits and messages while preserving back history", (
   const card = (id: string, message: string): CommitCard => ({
     id,
     message,
-    author: "alice",
-    avatarUrl: "",
+    authors: [{ login: "alice", avatarUrl: "" }],
     url: "",
     repository: "",
     committedAt: "",
@@ -142,9 +143,8 @@ function candidate(
 ): CommitCard {
   return {
     id,
-    author,
+    authors: [{ login: author, avatarUrl: "" }],
     message,
-    avatarUrl: "",
     url: "",
     repository: "",
     committedAt: "",
@@ -157,8 +157,8 @@ function commitPool(candidates: CommitCard[]): CommitPool {
     commits: [],
     candidates,
     cursors: {
-      alice: { page: 2, exhausted: true },
-      bob: { page: 2, exhausted: true },
+      alice: initialCommitCursor(true),
+      bob: initialCommitCursor(true),
     },
   };
 }
@@ -180,7 +180,8 @@ test("participants have equal probability despite a 100-to-1 commit imbalance", 
     });
     assert.equal(round.kind, "commit");
     if (round.kind !== "commit") throw new Error("Expected a commit");
-    counts.set(round.commit.author, (counts.get(round.commit.author) ?? 0) + 1);
+    const author = round.commit.authors[0].login;
+    counts.set(author, (counts.get(author) ?? 0) + 1);
   }
   assert.deepEqual(Object.fromEntries(counts), { alice: 500, bob: 500 });
   assert.equal(draws, 1000);
@@ -207,7 +208,7 @@ test("random participant repeats are allowed without repeating commits or changi
   if (second.kind !== "commit") throw new Error("Expected a commit");
   assert.equal(first.commit.id, "a1");
   assert.equal(second.commit.id, "a2");
-  assert.equal(second.commit.author, first.commit.author);
+  assert.deepEqual(second.commit.authors, first.commit.authors);
   assert.deepEqual(afterFirst, original);
   assert.deepEqual(
     chooseNextRound({
@@ -221,7 +222,7 @@ test("random participant repeats are allowed without repeating commits or changi
 
 test("depleted participants refill before any random draw; buffered authors need no new pages", () => {
   const pool = commitPool([candidate("a1", "alice")]);
-  pool.cursors.bob = { page: 2, exhausted: false };
+  pool.cursors.bob = initialCommitCursor();
   assert.deepEqual(
     chooseNextRound(pool, () => {
       throw new Error(
@@ -242,18 +243,36 @@ test("depleted participants refill before any random draw; buffered authors need
     {
       ...pool,
       candidates: [...pool.candidates, candidate("b1", "bob")],
-      cursors: { ...pool.cursors, bob: { page: 3, exhausted: true } },
+      cursors: { ...pool.cursors, bob: initialCommitCursor(true) },
     },
     () => 0.75,
   );
   assert.equal(refilled.kind, "commit");
   if (refilled.kind !== "commit") throw new Error("Expected a commit");
-  assert.equal(refilled.commit.author, "bob");
+  assert.equal(refilled.commit.authors[0].login, "bob");
+});
+
+test("pending original PR commits keep a player searchable after indexed search ends", () => {
+  const pool = commitPool([candidate("b1", "bob")]);
+  pool.cursors.alice = {
+    search: { page: 11, exhausted: true },
+    pullRequests: {
+      page: 2,
+      exhausted: true,
+      pending: [{ repository: "owner/repository", number: 412 }],
+      commitPage: 2,
+    },
+    exhausted: false,
+  };
+  assert.deepEqual(chooseNextRound(pool), {
+    kind: "fetch",
+    usernames: ["alice"],
+  });
 });
 
 test("the game stops as soon as anyone is exhausted, even if others have commits or pages left", () => {
   const pool = commitPool([candidate("a1", "alice")]);
-  pool.cursors.alice = { page: 2, exhausted: false };
+  pool.cursors.alice = initialCommitCursor();
   assert.deepEqual(chooseNextRound(pool), {
     kind: "finished",
     usernames: ["bob"],
@@ -281,7 +300,7 @@ test("shared unseen messages remain eligible for either author, then are removed
     const round = chooseNextRound(pool, () => random);
     assert.equal(round.kind, "commit");
     if (round.kind !== "commit") throw new Error("Expected a commit");
-    assert.equal(round.commit.author, author);
+    assert.equal(round.commit.authors[0].login, author);
     assert.deepEqual(round.candidates, [candidate("a2", "alice")]);
   }
 });
@@ -314,5 +333,99 @@ test("new pools fetch all participants and reject a missing lineup", () => {
   assert.throws(
     () => chooseNextRound({ ...commitPool([]), players: [] }),
     /needs participants/,
+  );
+});
+
+test("a shared commit is eligible for every matching player even if their searches are exhausted", () => {
+  const shared: CommitCard = {
+    ...candidate("shared", "copilot"),
+    authors: ["copilot", "alice", "bob"].map((login) => ({
+      login,
+      avatarUrl: "",
+    })),
+  };
+  const pool = commitPool([
+    shared,
+    candidate("a1", "alice"),
+    candidate("b1", "bob"),
+  ]);
+  const snapshot = structuredClone(pool);
+  for (const random of [0, 0.75]) {
+    const round = chooseNextRound(pool, () => random);
+    assert.equal(round.kind, "commit");
+    if (round.kind !== "commit") throw new Error("Expected a shared commit");
+    assert.equal(round.commit.id, "shared");
+    assert.deepEqual(
+      matchingCommitAuthors(round.commit, pool.players).map(
+        ({ login }) => login,
+      ),
+      ["alice", "bob"],
+    );
+    assert.deepEqual(
+      round.candidates.map(({ id }) => id),
+      ["a1", "b1"],
+    );
+    assert.deepEqual(pool, snapshot);
+  }
+});
+
+test("shared candidates stay deduplicated across player queues and cannot repeat once shown", () => {
+  const shared: CommitCard = {
+    ...candidate("shared", "alice"),
+    authors: [
+      { login: "alice", avatarUrl: "" },
+      { login: "bob", avatarUrl: "" },
+    ],
+  };
+  const pool = commitPool([
+    candidate("a1", "alice"),
+    candidate("b1", "bob"),
+    shared,
+    structuredClone(shared),
+  ]);
+  const first = chooseNextRound(pool, () => 0);
+  if (first.kind !== "commit") throw new Error("Expected a commit");
+  assert.equal(first.commit.id, "a1");
+  assert.equal(first.candidates.filter(({ id }) => id === "shared").length, 1);
+  const second = chooseNextRound(
+    {
+      ...pool,
+      commits: [first.commit],
+      candidates: first.candidates,
+    },
+    () => 0,
+  );
+  if (second.kind !== "commit") throw new Error("Expected a shared commit");
+  assert.equal(second.commit.id, "shared");
+  assert.deepEqual(
+    chooseNextRound({
+      ...pool,
+      commits: [first.commit, second.commit],
+      candidates: [...second.candidates, shared],
+    }),
+    { kind: "finished", usernames: ["alice"] },
+  );
+});
+
+test("reveals include all matching authors in lineup order without outside accounts", () => {
+  const commit: CommitCard = {
+    ...candidate("shared", "copilot"),
+    authors: [
+      { login: "copilot", avatarUrl: "bot-avatar" },
+      { login: "BOB", avatarUrl: "bob-avatar" },
+      { login: "alice", avatarUrl: "alice-avatar" },
+      { login: "charlie", avatarUrl: "charlie-avatar" },
+    ],
+  };
+  assert.deepEqual(
+    matchingCommitAuthors(commit, [
+      { username: "alice" },
+      { username: "bob" },
+      { username: "dana" },
+    ]),
+    [
+      { login: "alice", avatarUrl: "alice-avatar" },
+      { login: "BOB", avatarUrl: "bob-avatar" },
+    ],
   );
 });

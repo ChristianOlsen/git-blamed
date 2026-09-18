@@ -22,6 +22,14 @@ export function isUsername(value: unknown): value is string {
   );
 }
 
+export function isRepositoryName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 200 &&
+    /^[a-z\d](?:[a-z\d-]*[a-z\d])?\/(?!\.{1,2}$)[a-z\d_.-]+$/i.test(value)
+  );
+}
+
 export function isAvatarUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   try {

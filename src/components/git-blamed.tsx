@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRecord } from "@/lib/backend-errors";
+import { isCommitCard } from "@/lib/commit-card";
+import { initialCommitCursor, isCommitCursor } from "@/lib/commit-cursor";
 import { demoCommits, demoPlayers } from "@/lib/demo";
 import {
   type CommitPool,
@@ -10,7 +12,7 @@ import {
   normalizePlayers,
   partyUrl,
 } from "@/lib/game";
-import type { CommitBatch, CommitCard, Player, Viewer } from "@/lib/types";
+import type { CommitBatch, Player, Viewer } from "@/lib/types";
 import { ConnectDialog } from "./connect-dialog";
 import { GameScreen } from "./game-screen";
 import { SetupScreen } from "./setup-screen";
@@ -24,36 +26,16 @@ export type GameSession = CommitPool & {
   authenticated: boolean;
 };
 
-function isCommit(value: unknown): value is CommitCard {
-  return (
-    isRecord(value) &&
-    [
-      "id",
-      "message",
-      "author",
-      "avatarUrl",
-      "url",
-      "repository",
-      "committedAt",
-    ].every((key) => typeof value[key] === "string")
-  );
-}
-
 function isBatch(value: unknown): value is CommitBatch {
   return (
     isRecord(value) &&
     Array.isArray(value.commits) &&
-    value.commits.every(isCommit) &&
+    value.commits.every(isCommitCard) &&
     typeof value.exhausted === "boolean" &&
     Array.isArray(value.warnings) &&
     value.warnings.every((warning) => typeof warning === "string") &&
     isRecord(value.cursors) &&
-    Object.values(value.cursors).every(
-      (cursor) =>
-        isRecord(cursor) &&
-        Number.isInteger(cursor.page) &&
-        typeof cursor.exhausted === "boolean",
-    )
+    Object.values(value.cursors).every(isCommitCursor)
   );
 }
 
@@ -186,7 +168,10 @@ export function GitBlamed({
           const allowed = new Set(usernames);
           if (
             body.commits.some(
-              (commit) => !allowed.has(commit.author.toLowerCase()),
+              (commit) =>
+                !commit.authors.some(({ login }) =>
+                  allowed.has(login.toLowerCase()),
+                ),
             )
           ) {
             throw new Error(
@@ -237,7 +222,7 @@ export function GitBlamed({
           ? Object.fromEntries(
               lineup.map(({ username }) => [
                 username,
-                { page: 1, exhausted: true },
+                initialCommitCursor(true),
               ]),
             )
           : {},

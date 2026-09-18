@@ -6,6 +6,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { matchingCommitAuthors } from "@/lib/game";
 import type { GameSession } from "./git-blamed";
 import { Avatar, Logo } from "./ui";
 
@@ -36,9 +37,7 @@ export function GameScreen({
   const commit = game.commits[index];
   const revealed = game.step % 2 === 1;
   const finished = game.exhausted && !commit;
-  const authorIndex = game.players.findIndex(
-    (player) => player.username === commit?.author.toLowerCase(),
-  );
+  const authors = commit ? matchingCommitAuthors(commit, game.players) : [];
   const nextNeedsFetch =
     game.step + 1 >= game.commits.length * 2 && !game.exhausted;
   const waiting = loading || (retryIn > 0 && nextNeedsFetch);
@@ -95,14 +94,31 @@ export function GameScreen({
               </blockquote>
               {revealed && (
                 <>
-                  <div className="author-reveal">
-                    <Avatar
-                      name={commit.author}
-                      index={Math.max(0, authorIndex)}
-                      url={commit.avatarUrl}
-                      large
-                    />
-                    <h1 className="author-username">@{commit.author}</h1>
+                  <div className="authors-reveal">
+                    <h1 className="sr-only">
+                      {authors.length > 1 ? "Authors" : "Author"}
+                    </h1>
+                    <ul className="authors-list">
+                      {authors.map((author) => (
+                        <li className="author-reveal" key={author.login}>
+                          <Avatar
+                            name={author.login}
+                            index={Math.max(
+                              0,
+                              game.players.findIndex(
+                                ({ username }) =>
+                                  username === author.login.toLowerCase(),
+                              ),
+                            )}
+                            url={author.avatarUrl}
+                            large
+                          />
+                          <span className="author-username">
+                            @{author.login}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                   {!game.demo && (
                     <a
@@ -233,7 +249,7 @@ export function GameScreen({
             ) : revealed ? (
               "Next commit"
             ) : (
-              "Reveal author"
+              "Reveal authors"
             )}
             {!loading && <ArrowRight size={18} aria-hidden="true" />}
           </button>

@@ -1,5 +1,5 @@
 import { isUsername } from "./backend-errors.ts";
-import type { CommitBatch, CommitCard, Player } from "./types.ts";
+import type { CommitBatch, CommitCard, Player, Viewer } from "./types.ts";
 
 export const MAX_PLAYERS = 8;
 
@@ -101,6 +101,18 @@ export function appendUniqueCommits(
   return next;
 }
 
+export function matchingCommitAuthors(
+  commit: CommitCard,
+  players: Player[],
+): Viewer[] {
+  return players.flatMap(({ username }) => {
+    const author = commit.authors.find(
+      ({ login }) => login.toLowerCase() === username.toLowerCase(),
+    );
+    return author ? [author] : [];
+  });
+}
+
 export type CommitPool = {
   players: Player[];
   commits: CommitCard[];
@@ -125,8 +137,8 @@ export function chooseNextRound(
   const queues = pool.players.map(({ username }) =>
     appendUniqueCommits(
       pool.commits,
-      pool.candidates.filter(
-        (commit) => commit.author.toLowerCase() === username,
+      pool.candidates.filter((commit) =>
+        commit.authors.some(({ login }) => login.toLowerCase() === username),
       ),
     ).slice(pool.commits.length),
   );
@@ -156,12 +168,14 @@ export function chooseNextRound(
   return {
     kind: "commit",
     commit,
-    candidates: queues
-      .flat()
-      .filter(
-        (candidate) =>
-          candidate.id !== commit.id &&
-          candidate.message.trim().toLowerCase() !== message,
-      ),
+    candidates: [
+      ...new Map(
+        queues.flat().map((candidate) => [candidate.id, candidate]),
+      ).values(),
+    ].filter(
+      (candidate) =>
+        candidate.id !== commit.id &&
+        candidate.message.trim().toLowerCase() !== message,
+    ),
   };
 }

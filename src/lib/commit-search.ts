@@ -1,16 +1,31 @@
 import {
   BackendError,
-  isAvatarUrl,
   isRecord,
+  isRepositoryName,
   isUsername,
 } from "./backend-errors.ts";
+import {
+  type CommitAuthorResolver,
+  createCommitAuthorResolver,
+  primaryCommitAuthors,
+} from "./commit-authors.ts";
 import { type Fetcher, githubGet } from "./github-client.ts";
-import type { CommitBatch, CommitCard, CommitRequest } from "./types.ts";
+import {
+  COMMITS_PER_PAGE,
+  parseSearchPage,
+  SEARCH_RESULT_LIMIT,
+} from "./search-page.ts";
+import type {
+  CommitCard,
+  IndexedCommitBatch,
+  IndexedCommitRequest,
+  Viewer,
+} from "./types.ts";
 
-const PER_PAGE = 100;
-const MAX_PAGE = 10;
+const PER_PAGE = COMMITS_PER_PAGE;
+const MAX_PAGE = SEARCH_RESULT_LIMIT / PER_PAGE;
 
-export function validateCommitRequest(value: unknown): CommitRequest {
+export function validateCommitRequest(value: unknown): IndexedCommitRequest {
   if (
     !isRecord(value) ||
     Object.keys(value).some(
@@ -36,7 +51,7 @@ export function validateCommitRequest(value: unknown): CommitRequest {
   if (new Set(usernames).size !== usernames.length) {
     throw new BackendError("GitHub usernames must be unique.", 400);
   }
-  const cursors: CommitRequest["cursors"] = {};
+  const cursors: IndexedCommitRequest["cursors"] = {};
   for (const [username, cursor] of Object.entries(value.cursors)) {
     if (
       !usernames.includes(username) ||
@@ -114,27 +129,24 @@ export function rankCommits(
   return decorated.map(({ commit }) => commit);
 }
 
-function parseCommit(value: unknown, username: string): CommitCard | null {
+export function parseCommit(
+  value: unknown,
+  username: string,
+  repositoryName?: string,
+  verifiedAuthors?: Viewer[],
+): CommitCard | null {
   if (!isRecord(value)) {
     throw new BackendError("GitHub returned an invalid commit record.", 502);
   }
-  // Search can match unlinked historical identities. Only GitHub's linked author counts.
-  if (value.author === null) return null;
-  if (!isRecord(value.author) || typeof value.author.login !== "string") {
-    throw new BackendError("GitHub returned an invalid commit author.", 502);
-  }
-  if (value.author.login.toLowerCase() !== username) return null;
+  const authors = verifiedAuthors ?? primaryCommitAuthors(value);
+  if (!authors.some((author) => author.login === username)) return null;
+  const repository =
+    repositoryName ??
+    (isRecord(value.repository) ? value.repository.full_name : undefined);
   if (
-    !isUsername(value.author.login) ||
-    !isAvatarUrl(value.author.avatar_url) ||
     typeof value.sha !== "string" ||
     !/^[a-f\d]{40}$/i.test(value.sha) ||
-    !isRecord(value.repository) ||
-    typeof value.repository.full_name !== "string" ||
-    value.repository.full_name.length > 200 ||
-    !/^[a-z\d](?:[a-z\d-]*[a-z\d])?\/(?!\.{1,2}$)[a-z\d_.-]+$/i.test(
-      value.repository.full_name,
-    ) ||
+    !isRepositoryName(repository) ||
     !isRecord(value.commit) ||
     typeof value.commit.message !== "string" ||
     !isRecord(value.commit.committer) ||
@@ -151,17 +163,37 @@ function parseCommit(value: unknown, username: string): CommitCard | null {
     .trim()
     .slice(0, 1000);
   if (!message || isCommitNoise(message)) return null;
-  const repository = value.repository.full_name;
   const sha = value.sha.toLowerCase();
   return {
     id: sha,
     message,
-    author: value.author.login.toLowerCase(),
-    avatarUrl: value.author.avatar_url,
+    authors,
     url: `https://github.com/${repository}/commit/${sha}`,
     repository,
     committedAt: value.commit.committer.date,
   };
+}
+
+export function deduplicateCommits(commits: CommitCard[]): CommitCard[] {
+  const unique = new Map<string, CommitCard>();
+  for (const commit of commits) {
+    const duplicate = unique.get(commit.id);
+    if (
+      duplicate &&
+      (duplicate.authors.length !== commit.authors.length ||
+        duplicate.authors.some(
+          (author) =>
+            !commit.authors.some((other) => other.login === author.login),
+        ))
+    ) {
+      throw new BackendError(
+        "GitHub returned conflicting author information. Retry the batch; no pages were skipped.",
+        502,
+      );
+    }
+    if (!duplicate) unique.set(commit.id, commit);
+  }
+  return [...unique.values()];
 }
 
 export async function searchCommitBatch(
@@ -169,7 +201,11 @@ export async function searchCommitBatch(
   token?: string,
   fetcher: Fetcher = fetch,
   random: () => number = Math.random,
-): Promise<CommitBatch> {
+  options: {
+    warnOnEmpty?: boolean;
+    resolveAuthors?: CommitAuthorResolver;
+  } = {},
+): Promise<IndexedCommitBatch> {
   const request = validateCommitRequest(input);
   if (request.requireAuth && !token) {
     throw new BackendError(
@@ -179,6 +215,10 @@ export async function searchCommitBatch(
   }
   // Keep a public game's search scope stable if the host signs in in another tab.
   const searchToken = request.requireAuth === false ? undefined : token;
+  const resolveAuthors = searchToken
+    ? (options.resolveAuthors ??
+      createCommitAuthorResolver(searchToken, fetcher))
+    : createCommitAuthorResolver(undefined, fetcher);
   const results = await Promise.all(
     request.usernames.map(async (username) => {
       const cursor = Object.hasOwn(request.cursors, username)
@@ -199,45 +239,19 @@ export async function searchCommitBatch(
         searchToken,
         fetcher,
       );
-      if (
-        !isRecord(data) ||
-        typeof data.total_count !== "number" ||
-        !Number.isSafeInteger(data.total_count) ||
-        data.total_count < 0 ||
-        typeof data.incomplete_results !== "boolean" ||
-        !Array.isArray(data.items) ||
-        data.items.length > PER_PAGE
-      ) {
-        throw new BackendError(
-          "GitHub returned an invalid search response.",
-          502,
-        );
-      }
-      if (data.incomplete_results) {
-        throw new BackendError(
-          "GitHub returned an incomplete search. Retry this batch; no pages were skipped.",
-          503,
-          30,
-        );
-      }
-      const expectedItems = Math.min(
-        PER_PAGE,
-        Math.max(0, data.total_count - (cursor.page - 1) * PER_PAGE),
-      );
-      if (data.items.length < expectedItems) {
-        throw new BackendError(
-          "GitHub returned fewer results than its search count promised. Retry this batch; no pages were skipped.",
-          503,
-          30,
-        );
-      }
+      const page = parseSearchPage(data, cursor.page, PER_PAGE);
+      const authors = await resolveAuthors(page.items);
       const commits: CommitCard[] = [];
-      for (const item of data.items) {
-        const commit = parseCommit(item, username);
+      for (const [index, item] of page.items.entries()) {
+        const commit = parseCommit(item, username, undefined, authors[index]);
         if (commit) commits.push(commit);
       }
       const warnings: string[] = [];
-      if (data.total_count === 0 && cursor.page === 1) {
+      if (
+        options.warnOnEmpty !== false &&
+        page.totalCount === 0 &&
+        cursor.page === 1
+      ) {
         warnings.push(
           searchToken
             ? `@${username}: no indexed commits visible to the host were found. Private repository access, SSO, and GitHub indexing can affect results.`
@@ -248,35 +262,24 @@ export async function searchCommitBatch(
         username,
         cursor: {
           page: cursor.page + 1,
-          exhausted:
-            cursor.page === MAX_PAGE ||
-            data.items.length < PER_PAGE ||
-            cursor.page * PER_PAGE >= data.total_count,
+          exhausted: page.exhausted,
         },
         commits,
         warnings,
       };
     }),
   );
-  const commits = new Map<string, CommitCard>();
-  const cursors: CommitBatch["cursors"] = {};
+  const cursors: IndexedCommitBatch["cursors"] = {};
   const warnings = new Set<string>();
   for (const result of results) {
     cursors[result.username] = result.cursor;
-    for (const commit of result.commits) {
-      const duplicate = commits.get(commit.id);
-      if (duplicate && duplicate.author !== commit.author) {
-        throw new BackendError(
-          "GitHub returned conflicting author information. Retry the batch; no pages were skipped.",
-          502,
-        );
-      }
-      if (!duplicate) commits.set(commit.id, commit);
-    }
     for (const warning of result.warnings) warnings.add(warning);
   }
   return {
-    commits: rankCommits([...commits.values()], random),
+    commits: rankCommits(
+      deduplicateCommits(results.flatMap((result) => result.commits)),
+      random,
+    ),
     cursors,
     warnings: [...warnings],
     exhausted: Object.values(cursors).every((cursor) => cursor.exhausted),

@@ -2,6 +2,7 @@ import {
   BackendError,
   isAvatarUrl,
   isRecord,
+  isRepositoryName,
   isUsername,
 } from "./backend-errors.ts";
 import type { Viewer } from "./types.ts";
@@ -64,17 +65,23 @@ async function requestJson(
   url: URL | string,
   options: RequestInit,
   fetcher: Fetcher,
-): Promise<unknown> {
+): Promise<{ data: unknown; headers: Headers }> {
   let response: Response;
   let text: string;
   try {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, timeout])
+      : timeout;
+    signal.throwIfAborted();
     response = await fetcher(url, {
       ...options,
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal,
     });
     text = await readLimitedBody(response, MAX_RESPONSE_BYTES);
+    signal.throwIfAborted();
   } catch (error) {
     if (error instanceof BackendError) throw error;
     if (
@@ -116,7 +123,7 @@ async function requestJson(
           /(?:secondary )?rate limit|abuse detection/i.test(message)))
     ) {
       throw new BackendError(
-        "GitHub's search rate limit was reached. Wait before retrying; no pages were skipped.",
+        "GitHub's API rate limit was reached. Wait before retrying; no pages were skipped.",
         429,
         retryAfterSeconds(response.headers),
       );
@@ -151,7 +158,7 @@ async function requestJson(
       403,
     );
   }
-  return data;
+  return { data, headers: response.headers };
 }
 
 export async function githubGet(
@@ -162,7 +169,7 @@ export async function githubGet(
   if (!path.startsWith("/") || path.startsWith("//")) {
     throw new Error("GitHub API paths must be absolute paths.");
   }
-  return requestJson(
+  const response = await requestJson(
     `https://api.github.com${path}`,
     {
       method: "GET",
@@ -175,6 +182,142 @@ export async function githubGet(
     },
     fetcher,
   );
+  return response.data;
+}
+
+export const COMMIT_AUTHOR_QUERY_SIZE = 50;
+
+export type CommitAuthorTarget = {
+  repository: string;
+  sha: string;
+  after?: string;
+};
+
+export async function githubCommitAuthors(
+  targets: CommitAuthorTarget[],
+  token: string,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  if (!token) {
+    throw new BackendError("Connect GitHub to verify commit co-authors.", 401);
+  }
+  if (
+    !Array.isArray(targets) ||
+    targets.length < 1 ||
+    targets.length > COMMIT_AUTHOR_QUERY_SIZE ||
+    targets.some(
+      (target) =>
+        !isRecord(target) ||
+        !isRepositoryName(target.repository) ||
+        typeof target.sha !== "string" ||
+        !/^[a-f\d]{40}$/i.test(target.sha) ||
+        (target.after !== undefined &&
+          (typeof target.after !== "string" ||
+            !target.after.length ||
+            target.after.length > 1024 ||
+            /\p{Cc}/u.test(target.after))),
+    )
+  ) {
+    throw new BackendError("Invalid commit author lookup.", 502);
+  }
+  const variables: Record<string, string | null> = {};
+  const declarations: string[] = [];
+  const fields = targets.map((target, index) => {
+    const [owner, name] = target.repository.split("/");
+    variables[`owner${index}`] = owner;
+    variables[`name${index}`] = name;
+    variables[`oid${index}`] = target.sha;
+    variables[`after${index}`] = target.after ?? null;
+    declarations.push(
+      `$owner${index}:String!,$name${index}:String!,$oid${index}:GitObjectID!,$after${index}:String`,
+    );
+    return `c${index}:repository(owner:$owner${index},name:$name${index}){
+      nameWithOwner
+      object(oid:$oid${index}){... on Commit{
+        oid
+        authors(first:100,after:$after${index}){
+          nodes{user{login avatarUrl}}
+          pageInfo{hasNextPage endCursor}
+        }
+      }}
+    }`;
+  });
+  const { data, headers } = await requestJson(
+    "https://api.github.com/graphql",
+    {
+      method: "POST",
+      signal,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": API_VERSION,
+        "User-Agent": "git-blamed",
+      },
+      body: JSON.stringify({
+        query: `query CommitAuthors(${declarations.join(",")}){${fields.join("\n")}}`,
+        variables,
+      }),
+    },
+    fetcher,
+  );
+  if (!isRecord(data)) {
+    throw new BackendError("GitHub returned invalid commit author data.", 502);
+  }
+  if (data.errors !== undefined) {
+    if (!Array.isArray(data.errors) || !data.errors.length) {
+      throw new BackendError(
+        "GitHub returned invalid commit author data.",
+        502,
+      );
+    }
+    const errors = data.errors.filter(isRecord);
+    if (
+      errors.some(
+        (error) =>
+          error.type === "RATE_LIMITED" ||
+          (isRecord(error.extensions) &&
+            error.extensions.code === "RATE_LIMITED") ||
+          (typeof error.message === "string" &&
+            /rate limit|abuse detection/i.test(error.message)),
+      )
+    ) {
+      throw new BackendError(
+        "GitHub's API rate limit was reached. Wait before retrying; no pages were skipped.",
+        429,
+        retryAfterSeconds(headers),
+      );
+    }
+    if (
+      errors.some(
+        (error) =>
+          ["FORBIDDEN", "NOT_FOUND", "UNAUTHORIZED"].includes(
+            String(error.type),
+          ) ||
+          (isRecord(error.extensions) &&
+            ["FORBIDDEN", "NOT_FOUND", "UNAUTHORIZED"].includes(
+              String(error.extensions.code),
+            )),
+      )
+    ) {
+      throw new BackendError(
+        "GitHub denied commit author access. Check repository permissions (Contents: read may be needed), organization approval, and SSO authorization.",
+        403,
+      );
+    }
+    throw new BackendError(
+      "GitHub could not verify all commit authors. Retry the batch; no pages were skipped.",
+      502,
+    );
+  }
+  if (!isRecord(data.data)) {
+    throw new BackendError(
+      "GitHub returned incomplete commit author data. Check repository permissions (Contents: read may be needed) and SSO authorization; no pages were skipped.",
+      502,
+    );
+  }
+  return data.data;
 }
 
 export async function fetchViewer(

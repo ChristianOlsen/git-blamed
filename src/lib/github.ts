@@ -1,3 +1,3 @@
 import "server-only";
 
-export { searchCommitBatch as fetchCommitBatch } from "./commit-search.ts";
+export { fetchCommitBatch } from "./commit-batch.ts";

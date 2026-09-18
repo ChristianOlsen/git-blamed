@@ -40,7 +40,7 @@ export async function readJsonBody(request: Request): Promise<unknown> {
   }
   let text: string;
   try {
-    text = await readLimitedBody(request, 8192);
+    text = await readLimitedBody(request, 16_384);
   } catch (error) {
     if (error instanceof BackendError) {
       throw new BackendError("The request is too large.", 413);

@@ -10,15 +10,30 @@ export type Viewer = {
 export type CommitCard = {
   id: string;
   message: string;
-  author: string;
-  avatarUrl: string;
+  authors: Viewer[];
   url: string;
   repository: string;
   committedAt: string;
 };
 
-export type CommitCursor = {
+export type SearchCursor = {
   page: number;
+  exhausted: boolean;
+};
+
+export type PullRequestReference = {
+  repository: string;
+  number: number;
+};
+
+export type PullRequestCursor = SearchCursor & {
+  pending: PullRequestReference[];
+  commitPage: number;
+};
+
+export type CommitCursor = {
+  search: SearchCursor;
+  pullRequests: PullRequestCursor;
   exhausted: boolean;
 };
 
@@ -33,4 +48,12 @@ export type CommitRequest = {
   usernames: string[];
   cursors: Record<string, CommitCursor>;
   requireAuth?: boolean;
+};
+
+export type IndexedCommitBatch = Omit<CommitBatch, "cursors"> & {
+  cursors: Record<string, SearchCursor>;
+};
+
+export type IndexedCommitRequest = Omit<CommitRequest, "cursors"> & {
+  cursors: Record<string, SearchCursor>;
 };

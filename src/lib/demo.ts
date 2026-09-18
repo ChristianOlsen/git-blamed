@@ -22,8 +22,7 @@ export const demoCommits: CommitCard[] = messages.map(
   ([message, author], index) => ({
     id: `demo-${index}`,
     message,
-    author,
-    avatarUrl: "",
+    authors: [{ login: author, avatarUrl: "" }],
     url: "",
     repository: "",
     committedAt: "",

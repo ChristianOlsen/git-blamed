@@ -240,6 +240,12 @@ svg {
 .connect-button:hover {
   text-decoration: underline;
 }
+.coauthor-help {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .connect-dialog {
   width: min(440px, calc(100% - 40px));
   max-height: calc(100svh - 40px);
@@ -380,12 +386,24 @@ svg {
   line-height: 1.3;
   letter-spacing: -0.5px;
 }
+.authors-reveal {
+  margin-top: 48px;
+}
+.authors-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 24px 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .author-reveal {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 20px;
-  margin-top: 48px;
+  max-width: 100%;
 }
 .author-username {
   margin: 0;
@@ -550,9 +568,11 @@ svg {
   .commit-message {
     letter-spacing: -1px;
   }
+  .authors-reveal {
+    margin-top: 36px;
+  }
   .author-reveal {
     gap: 14px;
-    margin-top: 36px;
   }
   .avatar-large {
     width: 60px;

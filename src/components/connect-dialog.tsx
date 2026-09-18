@@ -150,8 +150,13 @@ export function ConnectDialog({
           <p>
             For a classic token, enable <code>repo</code> and authorize your
             organization under Configure SSO. Fine-grained tokens must include
-            the organization&apos;s repositories and may need admin approval.
-            Only connect tokens you are authorized to use here.
+            the organization&apos;s repositories with read access to Pull
+            requests, and may need admin approval. Only connect tokens you are
+            authorized to use here.
+          </p>
+          <p>
+            If commit or co-author lookup is denied, also check Contents read
+            access for the selected repositories.
           </p>
         </details>
         {error && (
