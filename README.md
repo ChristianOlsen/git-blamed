@@ -27,6 +27,27 @@ This option is **local-development only**: it requires development mode and a lo
 
 **Use public commits** disables the local token for the current page; **Use local token** enables it again. Refreshing restores the configured default. Remove `GITHUB_TOKEN` and restart the dev server to disable it permanently. The manual **Connect GitHub** option remains available when using public mode.
 
+### Optional AI ranking
+
+Commit subjects are ranked by a built-in heuristic that favours confessional,
+frustrated and self-deprecating writing over release stamps and ticket
+references. Set an Anthropic API key to add a model pass on top of it:
+
+```dotenv
+ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+The server sends the **subject line only** of up to 60 commits per batch to
+Claude Haiku 4.5 in a single request, and reorders that slice by the scores it
+returns. Subject lines are truncated to 200 characters and the prompt treats
+them as untrusted data. Nothing is discarded, so a dull commit sinks in the
+order rather than disappearing from the game.
+
+Without the key the heuristic ranking is used on its own, and the same happens
+whenever the model call fails or replies with the wrong shape. In that case the
+game shows a note under **Search limits**. See the privacy note below before
+enabling this on a repository whose commit messages are not public.
+
 ## Deploy to Vercel
 
 The app needs a server for its commit and token APIs; GitHub Pages cannot host it.
@@ -76,7 +97,7 @@ Private commits visible to the **host's account** can appear on the shared scree
 
 Manually entered tokens remain in browser memory and are sent to this app's backend in an Authorization header for commit requests. Signing out clears that browser token and profile immediately, without a server request. It **does not revoke** the token at GitHub; revoke it separately in GitHub's settings. The optional local-development token instead stays in `.env.local` and the server's environment; it is never returned to the browser and is not erased by switching to public mode. There are no server-side sessions or authentication cookies.
 
-There is no database or application-side commit persistence. Loaded commits, guesses, and history live in client memory and are lost on refresh. Requests and sensitive responses use `no-store`; commit text is not sent to an AI service or logged by application code. Infrastructure operators can still control their own access logs and hosting environment.
+There is no database or application-side commit persistence. Loaded commits, guesses, and history live in client memory and are lost on refresh. Requests and sensitive responses use `no-store`. Commit text is not logged by application code. Commit text is not sent to an AI service unless `ANTHROPIC_API_KEY` is set, which enables the optional AI ranking described above; with that key configured, the subject line of each ranked commit is sent to the Anthropic API, and commit bodies, author names, repository names and URLs never are. Infrastructure operators can still control their own access logs and hosting environment.
 
 Do not share a host account or token between unrelated groups. Connected games use the token's repository access. Public games share the server IP's anonymous GitHub quotas; connected games share quotas with other activity using that account. Changing players or starting another game does not reset those quotas. Public games stay public; private games prompt for reconnection if their token expires rather than silently changing their search scope. This is a small, trusted-group app—not a multi-tenant service or an access-control boundary between people sharing a browser.
 
