@@ -1,89 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readAuthConfig } from "./auth-core.ts";
 import { BackendError } from "./backend-errors.ts";
 import {
-  exchangeOAuthCode,
   fetchViewer,
   githubGet,
   readLimitedBody,
   retryAfterSeconds,
 } from "./github-client.ts";
 
-const config = readAuthConfig({
-  APP_URL: "http://localhost:3000",
-  GITHUB_CLIENT_ID: "client-id",
-  GITHUB_CLIENT_SECRET: "client-secret",
-  SESSION_SECRET: "a-development-secret-with-at-least-32-characters",
-});
-assert.ok(config);
-
-test("OAuth token exchange supplies PKCE and secrets only to the token endpoint", async () => {
-  const token = await exchangeOAuthCode(
-    config,
-    "code",
-    "verifier",
-    async (url, options) => {
-      assert.equal(String(url), "https://github.com/login/oauth/access_token");
-      assert.equal(options?.method, "POST");
-      assert.equal(options?.cache, "no-store");
-      assert.equal(options?.redirect, "error");
-      const body = new URLSearchParams(String(options?.body));
-      assert.equal(body.get("client_id"), config.clientId);
-      assert.equal(body.get("client_secret"), config.clientSecret);
-      assert.equal(body.get("code_verifier"), "verifier");
-      assert.equal(
-        body.get("redirect_uri"),
-        `${config.origin}/api/auth/callback`,
-      );
-      return Response.json({
-        access_token: "gho_test",
-        token_type: "bearer",
-        scope: "read:user,repo",
-      });
-    },
-  );
-  assert.equal(token, "gho_test");
-});
-
-test("OAuth failures, insufficient scopes, and malformed tokens are never accepted", async () => {
-  for (const data of [
-    { error: "bad_verification_code", error_description: "sensitive details" },
-    {
-      access_token: "token",
-      token_type: "bearer",
-      scope: "read:user,public_repo",
-    },
-    { access_token: "token", token_type: "bearer", scope: "repo" },
-    {
-      access_token: "token\r\ninjection",
-      token_type: "bearer",
-      scope: "repo,read:user",
-    },
-    { access_token: "token", token_type: "other", scope: "repo,read:user" },
-    null,
-  ]) {
-    await assert.rejects(
-      exchangeOAuthCode(config, "code", "verifier", async () =>
-        Response.json(data),
-      ),
-      (error: unknown) => {
-        assert.ok(error instanceof BackendError);
-        assert.doesNotMatch(error.message, /sensitive details/);
-        return true;
-      },
-    );
-  }
-});
-
-test("a broader user scope is accepted and only a validated viewer is returned", async () => {
-  const token = await exchangeOAuthCode(config, "code", "verifier", async () =>
-    Response.json({
-      access_token: "token",
-      token_type: "bearer",
-      scope: "repo,user",
-    }),
-  );
+test("only a validated viewer profile is returned", async () => {
+  const token = "test-token";
   const viewer = await fetchViewer(token, async (url) => {
     assert.equal(String(url), "https://api.github.com/user");
     return Response.json({

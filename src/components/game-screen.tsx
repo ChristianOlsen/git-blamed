@@ -8,7 +8,6 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { partyUrl } from "@/lib/game";
 import type { GameSession } from "./git-blamed";
 import { Avatar, Logo } from "./ui";
 
@@ -22,6 +21,7 @@ export function GameScreen({
   onPrevious,
   onEnd,
   onRetry,
+  onConnect,
 }: {
   game: GameSession;
   loading: boolean;
@@ -32,6 +32,7 @@ export function GameScreen({
   onPrevious: () => void;
   onEnd: () => void;
   onRetry: () => void;
+  onConnect: () => void;
 }) {
   const index = Math.floor(game.step / 2);
   const commit = game.commits[index];
@@ -158,12 +159,13 @@ export function GameScreen({
               {needsAuth && " Reconnecting will start a new game."}
             </p>
             {needsAuth ? (
-              <a
+              <button
+                type="button"
                 className="button button-secondary"
-                href={`/api/auth/github?returnTo=${encodeURIComponent(partyUrl(game.players))}`}
+                onClick={onConnect}
               >
                 Reconnect GitHub <ArrowUpRight size={16} aria-hidden="true" />
-              </a>
+              </button>
             ) : (
               <button
                 type="button"

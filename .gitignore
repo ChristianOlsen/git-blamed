@@ -4,7 +4,6 @@ out/
 coverage/
 *.tsbuildinfo
 .env*
-!.env.example
 .DS_Store
 .idea/
 *.log

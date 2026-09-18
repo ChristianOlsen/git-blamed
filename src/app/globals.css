@@ -26,6 +26,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -40,6 +41,7 @@ summary {
 }
 button,
 a,
+input,
 textarea {
   -webkit-tap-highlight-color: transparent;
 }
@@ -216,21 +218,91 @@ svg {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 24px;
   color: var(--muted);
   font-size: 14px;
 }
-.auth-options {
+.connection-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 20px;
+}
+.connect-button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--green);
+  font-size: 14px;
+}
+.connect-button:hover {
+  text-decoration: underline;
+}
+.connect-dialog {
+  width: min(440px, calc(100% - 40px));
+  max-height: calc(100svh - 40px);
+  margin: auto;
+  padding: 24px;
+  overflow: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.connect-dialog::backdrop {
+  background: #000a;
+}
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.dialog-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.token-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.token-label a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+}
+.token-input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--text);
+}
+.token-help,
+.token-permissions {
   margin-top: 16px;
   color: var(--muted);
-  font-size: 14px;
-}
-.auth-options summary {
-  width: fit-content;
-}
-.auth-options p {
-  margin: 16px 0;
+  font-size: 13px;
   line-height: 1.6;
+}
+.token-permissions p {
+  margin: 12px 0 0;
+}
+.token-submit {
+  width: 100%;
+  margin-top: 24px;
 }
 .error-notice {
   margin: 16px 0 0;

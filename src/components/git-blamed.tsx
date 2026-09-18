@@ -10,6 +10,7 @@ import {
   partyUrl,
 } from "@/lib/game";
 import type { CommitBatch, CommitCard, Player, Viewer } from "@/lib/types";
+import { ConnectDialog } from "./connect-dialog";
 import { GameScreen } from "./game-screen";
 import { SetupScreen } from "./setup-screen";
 
@@ -57,18 +58,11 @@ function isBatch(value: unknown): value is CommitBatch {
   );
 }
 
-export function GitBlamed({
-  initialPlayers,
-  viewer,
-  authConfigured,
-  authError,
-}: {
-  initialPlayers: Player[];
-  viewer: Viewer | null;
-  authConfigured: boolean;
-  authError?: string;
-}) {
+export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
   const [setupPlayers, setSetupPlayers] = useState(initialPlayers);
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const accessTokenRef = useRef<string | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +101,12 @@ export function GitBlamed({
         while (!session.exhausted) {
           const response = await fetch("/api/commits", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(session.authenticated && accessTokenRef.current
+                ? { Authorization: `Bearer ${accessTokenRef.current}` }
+                : {}),
+            },
             body: JSON.stringify({
               usernames: session.players.map((player) => player.username),
               cursors: session.cursors,
@@ -247,6 +246,7 @@ export function GitBlamed({
   useEffect(() => {
     if (!game) return;
     function handleKey(event: KeyboardEvent) {
+      if (document.querySelector("dialog[open]")) return;
       const target = event.target;
       const isElement = target instanceof Element;
       const typing =
@@ -299,32 +299,50 @@ export function GitBlamed({
     updateGame(null);
   }
 
-  if (!game) {
-    return (
-      <SetupScreen
-        initialPlayers={setupPlayers}
-        viewer={viewer}
-        authConfigured={authConfigured}
-        authError={authError}
-        onStart={startGame}
-      />
-    );
-  }
-
   return (
-    <GameScreen
-      game={game}
-      loading={loading}
-      error={error}
-      needsAuth={needsAuth}
-      retryIn={remaining}
-      onNext={next}
-      onPrevious={previous}
-      onEnd={endGame}
-      onRetry={() => {
-        if (Date.now() >= retryAt)
-          void fetchMore(game, game.commits.length * 2);
-      }}
-    />
+    <>
+      {game ? (
+        <GameScreen
+          game={game}
+          loading={loading}
+          error={error}
+          needsAuth={needsAuth}
+          retryIn={remaining}
+          onNext={next}
+          onPrevious={previous}
+          onEnd={endGame}
+          onConnect={() => setConnecting(true)}
+          onRetry={() => {
+            if (Date.now() >= retryAt)
+              void fetchMore(game, game.commits.length * 2);
+          }}
+        />
+      ) : (
+        <SetupScreen
+          initialPlayers={setupPlayers}
+          viewer={viewer}
+          onStart={startGame}
+          onConnect={() => setConnecting(true)}
+          onSignOut={() => {
+            accessTokenRef.current = null;
+            setViewer(null);
+          }}
+        />
+      )}
+      {connecting && (
+        <ConnectDialog
+          onClose={() => setConnecting(false)}
+          onConnected={(token, profile) => {
+            accessTokenRef.current = token;
+            setViewer(profile);
+            setConnecting(false);
+            setError(null);
+            setNeedsAuth(false);
+            setRetryAt(0);
+            updateGame(null);
+          }}
+        />
+      )}
+    </>
   );
 }

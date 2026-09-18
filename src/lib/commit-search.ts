@@ -173,7 +173,7 @@ export async function searchCommitBatch(
   const request = validateCommitRequest(input);
   if (request.requireAuth && !token) {
     throw new BackendError(
-      "Your GitHub session expired. Sign in again to continue with private repository access.",
+      "Connect a GitHub token to continue with private repository access.",
       401,
     );
   }
@@ -250,7 +250,7 @@ export async function searchCommitBatch(
         warnings.push(
           searchToken
             ? `@${username}: no indexed commits visible to the host were found. Private repository access, SSO, and GitHub indexing can affect results.`
-            : `@${username}: no indexed public commits were found. Check the username and GitHub indexing; private repositories require optional host sign-in.`,
+            : `@${username}: no indexed public commits were found. Check the username and GitHub indexing; private repositories require an optional token connection.`,
         );
       }
       return {

@@ -1,34 +1,23 @@
 "use client";
 
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Globe,
-  LockKeyhole,
-  LogOut,
-} from "lucide-react";
+import { ArrowRight, Globe, LockKeyhole, LogOut } from "lucide-react";
 import { useId, useState } from "react";
-import {
-  MAX_PLAYERS,
-  partyUrl,
-  playersFromInput,
-  validatePlayers,
-} from "@/lib/game";
+import { MAX_PLAYERS, playersFromInput, validatePlayers } from "@/lib/game";
 import type { Player, Viewer } from "@/lib/types";
 import { Logo } from "./ui";
 
 export function SetupScreen({
   initialPlayers,
   viewer,
-  authConfigured,
-  authError,
   onStart,
+  onConnect,
+  onSignOut,
 }: {
   initialPlayers: Player[];
   viewer: Viewer | null;
-  authConfigured: boolean;
-  authError?: string;
   onStart: (players: Player[], demo: boolean) => void;
+  onConnect: () => void;
+  onSignOut: () => void;
 }) {
   const id = useId();
   const [input, setInput] = useState(
@@ -36,7 +25,6 @@ export function SetupScreen({
   );
   const [error, setError] = useState<string | null>(null);
   const players = playersFromInput(input);
-  const authUrl = `/api/auth/github?returnTo=${encodeURIComponent(partyUrl(players))}`;
 
   return (
     <div className="app-shell">
@@ -47,16 +35,15 @@ export function SetupScreen({
         {viewer && (
           <div className="host-menu">
             <span className="host-username">@{viewer.login}</span>
-            <form action="/api/auth/logout" method="post">
-              <button
-                className="icon-button"
-                type="submit"
-                aria-label="Sign out of GitHub"
-                title="Sign out"
-              >
-                <LogOut size={18} aria-hidden="true" />
-              </button>
-            </form>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={onSignOut}
+              aria-label="Sign out of GitHub"
+              title="Sign out"
+            >
+              <LogOut size={18} aria-hidden="true" />
+            </button>
           </div>
         )}
       </header>
@@ -124,31 +111,25 @@ export function SetupScreen({
             </div>
           </form>
 
-          <div className="access-mode">
-            {viewer ? (
-              <LockKeyhole size={15} aria-hidden="true" />
-            ) : (
-              <Globe size={15} aria-hidden="true" />
+          <div className="connection-settings">
+            <div className="access-mode">
+              {viewer ? (
+                <LockKeyhole size={15} aria-hidden="true" />
+              ) : (
+                <Globe size={15} aria-hidden="true" />
+              )}
+              {viewer ? "Connected to GitHub" : "Public commits"}
+            </div>
+            {!viewer && (
+              <button
+                className="connect-button"
+                type="button"
+                onClick={onConnect}
+              >
+                Connect GitHub
+              </button>
             )}
-            {viewer ? "Public + private commits" : "Public commits"}
           </div>
-          {authConfigured && !viewer && (
-            <details className="auth-options">
-              <summary>Include private repositories</summary>
-              <p>
-                Optional host sign-in. Requires GitHub&apos;s broad{" "}
-                <code>repo</code> permission; this app only reads.
-              </p>
-              <a href={authUrl} className="button button-secondary">
-                Connect GitHub <ArrowUpRight size={16} aria-hidden="true" />
-              </a>
-            </details>
-          )}
-          {authError && (
-            <p className="error-notice" role="alert">
-              {authError}
-            </p>
-          )}
         </section>
       </main>
     </div>

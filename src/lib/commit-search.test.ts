@@ -177,7 +177,7 @@ test("public games stay public even if a session becomes available between pages
   assert.equal(result.exhausted, true);
 });
 
-test("private games require their session rather than silently switching to public search", async () => {
+test("private games require a token rather than silently switching to public search", async () => {
   await assert.rejects(
     searchCommitBatch({ ...request, requireAuth: true }, undefined, async () =>
       assert.fail("an expired private session must not make a public search"),
@@ -217,7 +217,7 @@ test("public empty-search guidance does not assume a signed-in host", async () =
     searchResponse([]),
   );
   assert.match(result.warnings[0], /no indexed public commits/);
-  assert.match(result.warnings[0], /optional host sign-in/);
+  assert.match(result.warnings[0], /optional token connection/);
 });
 
 test("linked author, not committer or raw git author, decides attribution", async () => {

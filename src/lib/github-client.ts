@@ -1,4 +1,3 @@
-import type { AuthConfig } from "./auth-core.ts";
 import {
   BackendError,
   isAvatarUrl,
@@ -124,13 +123,13 @@ async function requestJson(
     }
     if (response.status === 401) {
       throw new BackendError(
-        "Your GitHub authorization expired or was revoked. Sign in again.",
+        "Your GitHub token expired or was revoked. Reconnect GitHub.",
         401,
       );
     }
     if (response.status === 403) {
       throw new BackendError(
-        "GitHub denied access. Check OAuth repository permissions, organization approval, and SSO authorization.",
+        "GitHub denied access. Check repository permissions, organization approval, and SSO authorization.",
         403,
       );
     }
@@ -148,7 +147,7 @@ async function requestJson(
   }
   if (response.headers.get("x-github-sso")?.includes("partial-results")) {
     throw new BackendError(
-      "GitHub returned only partial organization results. Authorize this OAuth app for organization SSO, then retry.",
+      "GitHub returned only partial organization results. Authorize your token for organization SSO, then retry.",
       403,
     );
   }
@@ -176,66 +175,6 @@ export async function githubGet(
     },
     fetcher,
   );
-}
-
-export async function exchangeOAuthCode(
-  config: AuthConfig,
-  code: string,
-  verifier: string,
-  fetcher: Fetcher = fetch,
-): Promise<string> {
-  const data = await requestJson(
-    "https://github.com/login/oauth/access_token",
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        code,
-        code_verifier: verifier,
-        redirect_uri: `${config.origin}/api/auth/callback`,
-      }).toString(),
-    },
-    fetcher,
-  );
-  if (!isRecord(data)) {
-    throw new BackendError(
-      "GitHub returned an invalid authorization response.",
-      502,
-    );
-  }
-  if (typeof data.error === "string") {
-    throw new BackendError(
-      data.error === "bad_verification_code"
-        ? "The GitHub sign-in code expired or was already used. Please sign in again."
-        : "GitHub could not authorize this app. Check the OAuth app settings and try again.",
-      401,
-    );
-  }
-  if (
-    typeof data.access_token !== "string" ||
-    !/^[\w-]{1,512}$/.test(data.access_token) ||
-    typeof data.token_type !== "string" ||
-    data.token_type.toLowerCase() !== "bearer" ||
-    typeof data.scope !== "string"
-  ) {
-    throw new BackendError(
-      "GitHub returned an invalid authorization response.",
-      502,
-    );
-  }
-  const scopes = new Set(data.scope.split(/[,\s]+/));
-  if (!scopes.has("repo") || !(scopes.has("read:user") || scopes.has("user"))) {
-    throw new BackendError(
-      "Sign-in needs the repo and read:user permissions to include the host's accessible private repositories.",
-      403,
-    );
-  }
-  return data.access_token;
 }
 
 export async function fetchViewer(

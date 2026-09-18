@@ -28,7 +28,7 @@ export function errorResponse(error: unknown): NextResponse {
   );
 }
 
-export async function readCommitBody(request: Request): Promise<unknown> {
+export async function readJsonBody(request: Request): Promise<unknown> {
   if (
     request.headers
       .get("content-type")
@@ -36,27 +36,20 @@ export async function readCommitBody(request: Request): Promise<unknown> {
       .trim()
       .toLowerCase() !== "application/json"
   ) {
-    throw new BackendError("Send commit requests as application/json.", 415);
+    throw new BackendError("Send requests as application/json.", 415);
   }
   let text: string;
   try {
     text = await readLimitedBody(request, 8192);
   } catch (error) {
     if (error instanceof BackendError) {
-      throw new BackendError("The commit request is too large.", 413);
+      throw new BackendError("The request is too large.", 413);
     }
     throw error;
   }
   try {
     return JSON.parse(text);
   } catch {
-    throw new BackendError("The commit request must contain valid JSON.", 400);
+    throw new BackendError("The request must contain valid JSON.", 400);
   }
-}
-
-export function privateRedirect(location: string): NextResponse {
-  return new NextResponse(null, {
-    status: 303,
-    headers: { ...PRIVATE_HEADERS, Location: location },
-  });
 }

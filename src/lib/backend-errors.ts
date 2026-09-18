@@ -37,3 +37,13 @@ export function isAvatarUrl(value: unknown): value is string {
     return false;
   }
 }
+
+export function isSecureTokenOrigin(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" ||
+    (url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+  );
+}
