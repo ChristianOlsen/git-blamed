@@ -57,9 +57,16 @@ function isBatch(value: unknown): value is CommitBatch {
   );
 }
 
-export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
+export function GitBlamed({
+  initialPlayers,
+  localTokenAvailable,
+}: {
+  initialPlayers: Player[];
+  localTokenAvailable: boolean;
+}) {
   const [setupPlayers, setSetupPlayers] = useState(initialPlayers);
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [usingLocalToken, setUsingLocalToken] = useState(localTokenAvailable);
   const [connecting, setConnecting] = useState(false);
   const accessTokenRef = useRef<string | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
@@ -239,7 +246,7 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
         step: 0,
         warnings: [],
         demo,
-        authenticated: !demo && viewer !== null,
+        authenticated: !demo && (viewer !== null || usingLocalToken),
       };
       setError(null);
       setNeedsAuth(false);
@@ -251,7 +258,7 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
       }
       void fetchMore(session, 0);
     },
-    [fetchMore, updateGame, viewer],
+    [fetchMore, updateGame, usingLocalToken, viewer],
   );
 
   const next = useCallback(() => {
@@ -352,11 +359,15 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
         <SetupScreen
           initialPlayers={setupPlayers}
           viewer={viewer}
+          localTokenAvailable={localTokenAvailable}
+          usingLocalToken={usingLocalToken}
           onStart={startGame}
           onConnect={() => setConnecting(true)}
+          onUseLocalToken={() => setUsingLocalToken(true)}
           onSignOut={() => {
             accessTokenRef.current = null;
             setViewer(null);
+            setUsingLocalToken(false);
           }}
         />
       )}
@@ -366,6 +377,7 @@ export function GitBlamed({ initialPlayers }: { initialPlayers: Player[] }) {
           onConnected={(token, profile) => {
             accessTokenRef.current = token;
             setViewer(profile);
+            setUsingLocalToken(false);
             setConnecting(false);
             setError(null);
             setNeedsAuth(false);

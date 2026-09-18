@@ -5,8 +5,9 @@ import {
   readJsonBody,
 } from "@/lib/api-response";
 import { fetchCommitBatch } from "@/lib/github";
+import { getLocalGitHubToken } from "@/lib/local-token";
 import { assertSameOrigin } from "@/lib/request-origin";
-import { assertTokenRequest, readBearerToken } from "@/lib/token-auth";
+import { assertTokenRequest, resolveCommitToken } from "@/lib/token-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,13 +15,16 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const token = readBearerToken(request.headers.get("authorization"));
+    assertSameOrigin(request.headers);
+    const body = await readJsonBody(request);
+    const token = resolveCommitToken(
+      request.headers,
+      body,
+      getLocalGitHubToken(request.headers),
+    );
     if (token) {
       assertTokenRequest(request.headers);
-    } else {
-      assertSameOrigin(request.headers);
     }
-    const body = await readJsonBody(request);
     const batch = await fetchCommitBatch(body, token);
     return NextResponse.json(batch, { headers: PRIVATE_HEADERS });
   } catch (error) {

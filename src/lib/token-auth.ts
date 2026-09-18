@@ -34,6 +34,40 @@ export function assertTokenRequest(headers: Pick<Headers, "get">): void {
   }
 }
 
+export function readLocalToken(
+  headers: Pick<Headers, "get">,
+  environment: {
+    NODE_ENV?: string;
+    VERCEL?: string;
+    GITHUB_TOKEN?: string;
+  },
+): string | undefined {
+  const host = headers.get("host");
+  if (
+    environment.NODE_ENV !== "development" ||
+    environment.VERCEL ||
+    !host ||
+    /[/\\@?#\s]/.test(host) ||
+    !isSecureTokenOrigin(`http://${host}`)
+  ) {
+    return undefined;
+  }
+  return environment.GITHUB_TOKEN?.trim() || undefined;
+}
+
+export function resolveCommitToken(
+  headers: Pick<Headers, "get">,
+  body: unknown,
+  localToken?: string,
+): string | undefined {
+  const supplied = readBearerToken(headers.get("authorization"));
+  if (supplied) return supplied;
+  if (isRecord(body) && body.requireAuth === true && localToken) {
+    return parseToken(localToken);
+  }
+  return undefined;
+}
+
 export async function connectToken(
   body: unknown,
   fetcher: Fetcher = fetch,

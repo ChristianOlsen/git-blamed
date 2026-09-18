@@ -7,14 +7,20 @@ import { Logo } from "./ui";
 export function SetupScreen({
   initialPlayers,
   viewer,
+  localTokenAvailable,
+  usingLocalToken,
   onStart,
   onConnect,
+  onUseLocalToken,
   onSignOut,
 }: {
   initialPlayers: Player[];
   viewer: Viewer | null;
+  localTokenAvailable: boolean;
+  usingLocalToken: boolean;
   onStart: (players: Player[], demo: boolean) => void;
   onConnect: () => void;
+  onUseLocalToken: () => void;
   onSignOut: () => void;
 }) {
   const id = useId();
@@ -30,15 +36,19 @@ export function SetupScreen({
         <a href="/" aria-label="gitblamed home">
           <Logo />
         </a>
-        {viewer && (
+        {(viewer || usingLocalToken) && (
           <div className="host-menu">
-            <span className="host-username">@{viewer.login}</span>
+            <span className="host-username">
+              {viewer ? `@${viewer.login}` : "Local token"}
+            </span>
             <button
               className="icon-button"
               type="button"
               onClick={onSignOut}
-              aria-label="Sign out of GitHub"
-              title="Sign out"
+              aria-label={
+                usingLocalToken ? "Use public commits" : "Sign out of GitHub"
+              }
+              title={usingLocalToken ? "Use public commits" : "Sign out"}
             >
               <LogOut size={18} aria-hidden="true" />
             </button>
@@ -111,21 +121,36 @@ export function SetupScreen({
 
           <div className="connection-settings">
             <div className="access-mode">
-              {viewer ? (
+              {viewer || usingLocalToken ? (
                 <LockKeyhole size={15} aria-hidden="true" />
               ) : (
                 <Globe size={15} aria-hidden="true" />
               )}
-              {viewer ? "Connected to GitHub" : "Public commits"}
+              {viewer
+                ? "Connected to GitHub"
+                : usingLocalToken
+                  ? "Local token configured"
+                  : "Public commits"}
             </div>
-            {!viewer && (
-              <button
-                className="connect-button"
-                type="button"
-                onClick={onConnect}
-              >
-                Connect GitHub
-              </button>
+            {!viewer && !usingLocalToken && (
+              <>
+                {localTokenAvailable && (
+                  <button
+                    className="connect-button"
+                    type="button"
+                    onClick={onUseLocalToken}
+                  >
+                    Use local token
+                  </button>
+                )}
+                <button
+                  className="connect-button"
+                  type="button"
+                  onClick={onConnect}
+                >
+                  Connect GitHub
+                </button>
+              </>
             )}
           </div>
         </section>

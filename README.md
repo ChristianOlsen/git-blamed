@@ -13,6 +13,20 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000), add GitHub usernames, and play with **real public commits**. No configuration or sign-in is required. The optional **demo uses fictitious commits and authors**; it never substitutes fake commits into a real game.
 
+### Optional local PAT
+
+Copy `.env.example` to `.env.local` and set:
+
+```dotenv
+GITHUB_TOKEN=your_github_pat
+```
+
+Restart `npm run dev`. The setup screen shows **Local token configured** and uses the token for new games without sending it to the browser. The same repository permissions and SSO requirements described below apply. A rejected token produces an error rather than silently switching to public access.
+
+This option is **local-development only**: it requires development mode and a loopback host, and is disabled on Vercel and in production, including `npm start`. The development server binds to `127.0.0.1`; do not expose it through a tunnel or override that binding while a local PAT is configured. Never use a `NEXT_PUBLIC_` variable for the token or commit `.env.local`.
+
+**Use public commits** disables the local token for the current page; **Use local token** enables it again. Refreshing restores the configured default. Remove `GITHUB_TOKEN` and restart the dev server to disable it permanently. The manual **Connect GitHub** option remains available when using public mode.
+
 ## Deploy to Vercel
 
 The app needs a server for its commit and token APIs; GitHub Pages cannot host it.
@@ -40,7 +54,7 @@ Click **Connect GitHub** and paste a personal access token. No environment confi
 - Create a token in [GitHub settings](https://github.com/settings/tokens). Prefer limited, read-only repository access and a short expiration.
 - For a fine-grained token, select the organization as the resource owner and include the repositories you want to use. Organization approval may be required.
 - A classic token needs the broad `repo` scope for private repositories. For SSO-protected organizations, use **Configure SSO** in GitHub's token settings to authorize the organization.
-- The token is kept only in browser memory for this page, never in local storage, session storage, cookies, or URLs. Refreshing or signing out clears it. The backend receives it only to validate it or make GitHub API requests, without persisting it.
+- A manually entered token is kept only in browser memory for this page, never in local storage, session storage, cookies, or URLs. Refreshing or signing out clears it. The backend receives it only to validate it or make GitHub API requests, without persisting it.
 - Use only a trusted instance of this app. Tokens are available to JavaScript on the page and to the server handling requests. HTTPS is required outside localhost.
 
 ## Play
@@ -59,7 +73,7 @@ Without a connection, GitHub requests omit the Authorization header and return *
 
 Private commits visible to the **host's account** can appear on the shared screen. Other players do not sign in and do not acquire independent GitHub permissions, but anyone using the connected browser can see the returned commit data. Play only with people authorized to see those repositories. Do not screen-share, record, or publicly host a connected game containing private work without permission. Commit subjects themselves can contain sensitive information. Avatars load from GitHub's image service, and opening a commit link sends you to GitHub.
 
-Tokens remain in browser memory and are sent to this app's backend in an Authorization header for commit requests. Signing out clears the local token and profile immediately, without a server request. It **does not revoke** the token at GitHub; revoke it separately in GitHub's settings. There are no server-side sessions or authentication cookies.
+Manually entered tokens remain in browser memory and are sent to this app's backend in an Authorization header for commit requests. Signing out clears that browser token and profile immediately, without a server request. It **does not revoke** the token at GitHub; revoke it separately in GitHub's settings. The optional local-development token instead stays in `.env.local` and the server's environment; it is never returned to the browser and is not erased by switching to public mode. There are no server-side sessions or authentication cookies.
 
 There is no database or application-side commit persistence. Loaded commits, guesses, and history live in client memory and are lost on refresh. Requests and sensitive responses use `no-store`; commit text is not sent to an AI service or logged by application code. Infrastructure operators can still control their own access logs and hosting environment.
 
@@ -81,7 +95,7 @@ These limits explain why a participant can run out even when they have more comm
 ## Backend contract
 
 - `POST /api/auth/token` validates JSON `{ "token": "..." }` using GitHub's `/user` endpoint and returns only `{ login, avatarUrl }`. It does not create a cookie or retain the token.
-- `POST /api/commits` accepts JSON `{ "usernames": ["alice", "bob"], "cursors": {}, "requireAuth": false }` without sign-in. The API accepts 1–8 distinct valid usernames and normalizes them to lowercase; the game UI requires at least two. `requireAuth: false` pins the game to public results; `true` requires an `Authorization: Bearer ...` header. When `requireAuth` is omitted, a supplied token is used, otherwise the search is public. Rejected tokens never fall back to public access.
+- `POST /api/commits` accepts JSON `{ "usernames": ["alice", "bob"], "cursors": {}, "requireAuth": false }` without sign-in. The API accepts 1–8 distinct valid usernames and normalizes them to lowercase; the game UI requires at least two. `requireAuth: false` pins the game to public results; `true` requires an `Authorization: Bearer ...` header or the local-development token. An explicit header takes precedence and never falls back to the local token if rejected. When `requireAuth` is omitted, a supplied header token is used, otherwise the search is public; the local token is used only when `requireAuth` is explicitly `true`. Rejected tokens never fall back to public access.
 - A successful batch is `{ commits, cursors, warnings, exhausted }`. `exhausted` means all requested search cursors are exhausted, not that the buffered commits have been used. Each commit is `{ id, message, author, avatarUrl, url, repository, committedAt }`, where `id` is the SHA and `author` is the verified lowercase linked author login.
 - Each cursor is `{ page, exhausted }`: `page` is the **next** page, missing means page 1, and an exhausted cursor makes no request. Live pages are 1–10; an exhausted cursor may have page 11. Send returned cursors unchanged to continue. Requests may mention only their specified usernames.
 - Failure responses are non-2xx JSON `{ error, retryAfter? }`; `retryAfter` is seconds and is also sent as an HTTP header. Never advance local cursors on an error. Identical warnings can recur across stateless requests; clients should deduplicate them.

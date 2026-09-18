@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BackendError, isSecureTokenOrigin } from "./backend-errors.ts";
+import { searchCommitBatch } from "./commit-search.ts";
 import {
   assertTokenRequest,
   connectToken,
   readBearerToken,
+  readLocalToken,
+  resolveCommitToken,
 } from "./token-auth.ts";
 
 test("tokens connect without configuration and only return a viewer profile", async () => {
@@ -144,4 +147,162 @@ test("token requests require HTTPS outside localhost and reject cross-origin req
     { status: 403 },
   );
   assert.throws(() => assertTokenRequest(new Headers()), { status: 403 });
+});
+
+test("local environment tokens are available only on loopback development requests", () => {
+  const environment = {
+    NODE_ENV: "development",
+    GITHUB_TOKEN: "  local-test-token  ",
+  };
+  for (const host of [
+    "localhost:3000",
+    "LOCALHOST:3000",
+    "127.0.0.1:3104",
+    "[::1]:3000",
+  ]) {
+    assert.equal(
+      readLocalToken(new Headers({ host }), environment),
+      "local-test-token",
+    );
+  }
+  for (const host of [
+    "party.example",
+    "localhost.example",
+    "127.0.0.1.example",
+    "192.168.1.2:3000",
+    "user@localhost:3000",
+    "localhost/path",
+    "localhost?query",
+    "localhost#fragment",
+    "localhost\\path",
+  ]) {
+    assert.equal(
+      readLocalToken(
+        new Headers({ host, "x-forwarded-host": "localhost:3000" }),
+        environment,
+      ),
+      undefined,
+    );
+  }
+  assert.equal(readLocalToken(new Headers(), environment), undefined);
+});
+
+test("production, test and Vercel environments never enable the local token", () => {
+  const headers = new Headers({ host: "localhost:3000" });
+  for (const NODE_ENV of ["production", "test", undefined]) {
+    assert.equal(
+      readLocalToken(headers, { NODE_ENV, GITHUB_TOKEN: "local-test-token" }),
+      undefined,
+    );
+  }
+  assert.equal(
+    readLocalToken(headers, {
+      NODE_ENV: "development",
+      VERCEL: "1",
+      GITHUB_TOKEN: "local-test-token",
+    }),
+    undefined,
+  );
+  for (const GITHUB_TOKEN of [undefined, "", " \n "]) {
+    assert.equal(
+      readLocalToken(headers, { NODE_ENV: "development", GITHUB_TOKEN }),
+      undefined,
+    );
+  }
+});
+
+test("public and unspecified access modes never use the configured local token", () => {
+  for (const body of [
+    { requireAuth: false },
+    {},
+    null,
+    { requireAuth: "true" },
+  ]) {
+    assert.equal(
+      resolveCommitToken(new Headers(), body, "local-test-token"),
+      undefined,
+    );
+  }
+  assert.equal(
+    resolveCommitToken(
+      new Headers(),
+      { requireAuth: true },
+      "local-test-token",
+    ),
+    "local-test-token",
+  );
+  assert.equal(
+    resolveCommitToken(new Headers(), { requireAuth: true }),
+    undefined,
+  );
+});
+
+test("explicit tokens take precedence and malformed headers never fall back to the local token", () => {
+  assert.equal(
+    resolveCommitToken(
+      new Headers({ authorization: "Bearer manual-test-token" }),
+      { requireAuth: true },
+      "invalid local token",
+    ),
+    "manual-test-token",
+  );
+  for (const authorization of ["", "Basic invalid", "Bearer invalid value"]) {
+    assert.throws(
+      () =>
+        resolveCommitToken(
+          new Headers({ authorization }),
+          { requireAuth: true },
+          "local-test-token",
+        ),
+      { status: 400 },
+    );
+  }
+});
+
+test("invalid local tokens fail private requests without blocking public mode or leaking their value", () => {
+  const invalid = "private-secret\ninvalid";
+  assert.equal(
+    resolveCommitToken(new Headers(), { requireAuth: false }, invalid),
+    undefined,
+  );
+  assert.throws(
+    () => resolveCommitToken(new Headers(), { requireAuth: true }, invalid),
+    (error: unknown) => {
+      assert.ok(error instanceof BackendError);
+      assert.equal(error.status, 400);
+      assert.doesNotMatch(error.message, /private-secret/);
+      return true;
+    },
+  );
+});
+
+test("a local token is sent only to GitHub for explicitly private searches", async () => {
+  const headers = new Headers({
+    host: "localhost:3000",
+    origin: "http://localhost:3000",
+  });
+  const localToken = readLocalToken(headers, {
+    NODE_ENV: "development",
+    GITHUB_TOKEN: "local-test-token",
+  });
+  for (const requireAuth of [false, true]) {
+    const body = { usernames: ["alice"], cursors: {}, requireAuth };
+    const result = await searchCommitBatch(
+      body,
+      resolveCommitToken(headers, body, localToken),
+      async (url, options) => {
+        assert.equal(new URL(String(url)).origin, "https://api.github.com");
+        assert.equal(
+          new Headers(options?.headers).get("authorization"),
+          requireAuth ? "Bearer local-test-token" : null,
+        );
+        return Response.json({
+          total_count: 0,
+          incomplete_results: false,
+          items: [],
+        });
+      },
+    );
+    assert.doesNotMatch(JSON.stringify(result), /local-test-token/);
+  }
 });
