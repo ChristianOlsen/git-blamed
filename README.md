@@ -21,13 +21,15 @@ Create a Vercel project for this repository using the **Next.js** framework pres
 
 | Secret | Value |
 | --- | --- |
-| `VERCEL_TOKEN` | A [Vercel access token](https://vercel.com/account/tokens) with access to the project. |
+| `VERCEL_TOKEN` | A [Vercel access token](https://vercel.com/account/tokens) scoped to the project's team; it can be restricted to this project. |
 | `VERCEL_ORG_ID` | The project's Vercel team/account ID. |
 | `VERCEL_PROJECT_ID` | The Vercel project ID. |
 
 The IDs are available in Vercel's team and project settings, or as `orgId` and `projectId` in `.vercel/project.json` if the project is already linked locally. Do not commit that directory or any tokens.
 
-`.github/workflows/nextjs.yml` deploys pushes to `main`, or can be run manually on `main`. It pulls production settings, installs dependencies with `npm ci`, builds the full Next.js app with Vercel CLI, runs the tests, and deploys the prebuilt output. These secrets authorize deployment only; the app still needs no environment configuration for public commits or the optional PAT connection.
+`.github/workflows/nextjs.yml` deploys pushes to `main`, or can be run manually on `main`. It installs dependencies with `npm ci` and runs the tests in GitHub Actions, then uploads the source with `vercel deploy --prod` and waits for Vercel to build and deploy the full Next.js app. These secrets authorize deployment only; the app still needs no environment configuration for public commits or the optional PAT connection.
+
+The workflow deliberately avoids `vercel pull`: that command reads team settings and fails with project-restricted tokens, even when the project IDs are correct. Direct deployment supports those restricted tokens, so no broader team access is needed.
 
 `vercel.json` selects npm explicitly because the repository contains both npm and pnpm lockfiles. It also disables Vercel's automatic Git deployments so GitHub Actions is the only deployment path. The workflow does not deploy to GitHub Pages.
 
