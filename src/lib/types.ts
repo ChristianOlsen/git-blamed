@@ -48,6 +48,8 @@ export type CommitRequest = {
   usernames: string[];
   cursors: Record<string, CommitCursor>;
   requireAuth?: boolean;
+  /** Off turns the AI ranking pass off for this game; the heuristic still runs. */
+  useAi?: boolean;
 };
 
 export type IndexedCommitBatch = Omit<CommitBatch, "cursors"> & {

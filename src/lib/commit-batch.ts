@@ -10,6 +10,7 @@ import {
 import type { Fetcher } from "./github-client.ts";
 import { fetchPullRequestCommits } from "./pull-request-commits.ts";
 import type { CommitBatch, CommitCard, CommitRequest } from "./types.ts";
+import { rerankByWit, type WitJudge } from "./wit-model.ts";
 
 export function validateBatchRequest(input: unknown): CommitRequest {
   if (!isRecord(input) || !isRecord(input.cursors)) {
@@ -46,6 +47,7 @@ export async function fetchCommitBatch(
   token?: string,
   fetcher: Fetcher = fetch,
   random: () => number = Math.random,
+  judge?: WitJudge | null,
 ): Promise<CommitBatch> {
   const request = validateBatchRequest(input);
   if (request.requireAuth && !token) {
@@ -109,13 +111,25 @@ export async function fetchCommitBatch(
   const cursors = Object.fromEntries(
     results.map((result) => [result.username, result.cursor]),
   );
-  return {
-    commits: rankCommits(
+  // The heuristic ranking runs first and always. The AI pass then reorders its
+  // top slice, unless the game turned the switch off, in which case no judge
+  // runs at all and the heuristic order is what ships.
+  const ranked = await rerankByWit(
+    rankCommits(
       deduplicateCommits(results.flatMap((result) => result.commits)),
       random,
     ),
+    request.useAi === false ? null : judge,
+  );
+  return {
+    commits: ranked.commits,
     cursors,
-    warnings: [...new Set(results.flatMap((result) => result.warnings))],
+    warnings: [
+      ...new Set([
+        ...results.flatMap((result) => result.warnings),
+        ...ranked.warnings,
+      ]),
+    ],
     exhausted: Object.values(cursors).every((cursor) => cursor.exhausted),
   };
 }

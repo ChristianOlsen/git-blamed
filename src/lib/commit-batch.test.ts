@@ -773,3 +773,60 @@ test("coauthor failure aborts the whole composite batch without consuming any so
   assert.deepEqual(input, snapshot);
   assert.equal(paths.filter((path) => path === "/graphql").length, 1);
 });
+
+test("the AI switch decides whether a judge runs at all", async () => {
+  const { fetcher } = mockFetcher((url) => {
+    if (url.pathname === "/search/issues") return search([pull(1)]);
+    if (url.pathname === "/search/commits") return search([]);
+    if (url.pathname.endsWith("/pulls/1/commits")) {
+      return [
+        commit(1, "alice", "fix the config path"),
+        commit(2, "alice", "sorry, my fault, I broke prod again"),
+      ];
+    }
+    return assert.fail(`unexpected request to ${url.pathname}`);
+  });
+  const base = { usernames: ["alice"], cursors: {} };
+  // A judge that inverts the incoming order, so its effect is unmistakable.
+  let calls = 0;
+  const judge = async (subjects: string[]) => {
+    calls++;
+    return subjects.map((_, index) => index);
+  };
+
+  const off = await fetchCommitBatch(
+    { ...base, useAi: false },
+    undefined,
+    fetcher,
+    () => 0,
+    judge,
+  );
+  assert.equal(calls, 0, "the switch off must not reach the model");
+  assert.equal(off.commits.length, 2);
+
+  const on = await fetchCommitBatch(
+    { ...base, useAi: true },
+    undefined,
+    fetcher,
+    () => 0,
+    judge,
+  );
+  assert.equal(calls, 1);
+  assert.deepEqual(
+    on.commits.map(({ id }) => id),
+    [...off.commits].reverse().map(({ id }) => id),
+  );
+  assert.deepEqual(on.warnings, []);
+});
+
+test("a non-boolean AI switch is rejected before any request", () => {
+  assert.throws(
+    () =>
+      validateBatchRequest({
+        usernames: ["alice"],
+        cursors: {},
+        useAi: "yes",
+      }),
+    /AI ranking switch/,
+  );
+});

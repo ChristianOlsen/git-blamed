@@ -9,6 +9,7 @@ export function SetupScreen({
   viewer,
   localTokenAvailable,
   usingLocalToken,
+  aiAvailable,
   onStart,
   onConnect,
   onUseLocalToken,
@@ -18,7 +19,8 @@ export function SetupScreen({
   viewer: Viewer | null;
   localTokenAvailable: boolean;
   usingLocalToken: boolean;
-  onStart: (players: Player[], demo: boolean) => void;
+  aiAvailable: boolean;
+  onStart: (players: Player[], demo: boolean, useAi: boolean) => void;
   onConnect: () => void;
   onUseLocalToken: () => void;
   onSignOut: () => void;
@@ -28,6 +30,8 @@ export function SetupScreen({
     initialPlayers.map((player) => player.username).join(", "),
   );
   const [error, setError] = useState<string | null>(null);
+  // Defaults to on where a key exists, so the switch is an opt-out.
+  const [useAi, setUseAi] = useState(aiAvailable);
   const players = playersFromInput(input);
 
   return (
@@ -73,7 +77,7 @@ export function SetupScreen({
               event.preventDefault();
               const validationError = validatePlayers(players);
               setError(validationError);
-              if (!validationError) onStart(players, false);
+              if (!validationError) onStart(players, false, useAi);
             }}
           >
             <label className="sr-only" htmlFor={`${id}-users`}>
@@ -102,6 +106,22 @@ export function SetupScreen({
                 {error}
               </p>
             )}
+            {aiAvailable && (
+              <label className="ai-toggle" htmlFor={`${id}-use-ai`}>
+                <input
+                  id={`${id}-use-ai`}
+                  type="checkbox"
+                  checked={useAi}
+                  onChange={(event) => setUseAi(event.target.checked)}
+                />
+                <span>
+                  Let AI pick the funniest commits
+                  <small>
+                    Off ranks with the built-in heuristic and calls no model.
+                  </small>
+                </span>
+              </label>
+            )}
             <div className="setup-actions">
               <button
                 className="button button-primary start-button"
@@ -112,7 +132,7 @@ export function SetupScreen({
               <button
                 className="button button-secondary"
                 type="button"
-                onClick={() => onStart(players, true)}
+                onClick={() => onStart(players, true, false)}
               >
                 Demo
               </button>

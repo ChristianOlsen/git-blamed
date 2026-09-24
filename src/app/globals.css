@@ -205,6 +205,26 @@ svg {
 .username-list::placeholder {
   color: #738091;
 }
+.ai-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.ai-toggle input {
+  margin-top: 2px;
+  accent-color: var(--text);
+  flex: none;
+}
+.ai-toggle small {
+  display: block;
+  font-size: 13px;
+  opacity: 0.75;
+}
 .setup-actions {
   display: flex;
   gap: 12px;

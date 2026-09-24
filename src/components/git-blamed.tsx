@@ -18,6 +18,8 @@ import { GameScreen } from "./game-screen";
 import { SetupScreen } from "./setup-screen";
 
 export type GameSession = CommitPool & {
+  /** Whether this game asks the AI judge to rank commits. */
+  useAi: boolean;
   exhausted: boolean;
   exhaustedPlayers: string[];
   warnings: string[];
@@ -42,9 +44,11 @@ function isBatch(value: unknown): value is CommitBatch {
 export function GitBlamed({
   initialPlayers,
   localTokenAvailable,
+  aiAvailable,
 }: {
   initialPlayers: Player[];
   localTokenAvailable: boolean;
+  aiAvailable: boolean;
 }) {
   const [setupPlayers, setSetupPlayers] = useState(initialPlayers);
   const [viewer, setViewer] = useState<Viewer | null>(null);
@@ -125,6 +129,7 @@ export function GitBlamed({
                   .map((username) => [username, session.cursors[username]]),
               ),
               requireAuth: session.authenticated,
+              useAi: session.useAi,
             }),
             signal: controller.signal,
             cache: "no-store",
@@ -211,7 +216,7 @@ export function GitBlamed({
   );
 
   const startGame = useCallback(
-    (players: Player[], demo: boolean) => {
+    (players: Player[], demo: boolean, useAi: boolean) => {
       setSetupPlayers(players);
       const lineup = demo ? demoPlayers : normalizePlayers(players);
       const session: GameSession = {
@@ -226,6 +231,7 @@ export function GitBlamed({
               ]),
             )
           : {},
+        useAi: useAi && !demo,
         exhausted: false,
         exhaustedPlayers: [],
         step: 0,
@@ -346,6 +352,7 @@ export function GitBlamed({
           viewer={viewer}
           localTokenAvailable={localTokenAvailable}
           usingLocalToken={usingLocalToken}
+          aiAvailable={aiAvailable}
           onStart={startGame}
           onConnect={() => setConnecting(true)}
           onUseLocalToken={() => setUsingLocalToken(true)}

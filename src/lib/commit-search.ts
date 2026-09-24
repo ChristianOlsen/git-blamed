@@ -29,7 +29,7 @@ export function validateCommitRequest(value: unknown): IndexedCommitRequest {
   if (
     !isRecord(value) ||
     Object.keys(value).some(
-      (key) => !["usernames", "cursors", "requireAuth"].includes(key),
+      (key) => !["usernames", "cursors", "requireAuth", "useAi"].includes(key),
     ) ||
     !Array.isArray(value.usernames) ||
     value.usernames.length < 1 ||
@@ -74,12 +74,16 @@ export function validateCommitRequest(value: unknown): IndexedCommitRequest {
       exhausted: cursor.exhausted,
     };
   }
+  if (value.useAi !== undefined && typeof value.useAi !== "boolean") {
+    throw new BackendError("The AI ranking switch must be true or false.", 400);
+  }
   return {
     usernames,
     cursors,
     ...(value.requireAuth === undefined
       ? {}
       : { requireAuth: value.requireAuth }),
+    ...(value.useAi === undefined ? {} : { useAi: value.useAi }),
   };
 }
 
