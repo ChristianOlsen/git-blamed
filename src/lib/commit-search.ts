@@ -25,6 +25,32 @@ import type {
 const PER_PAGE = COMMITS_PER_PAGE;
 const MAX_PAGE = SEARCH_RESULT_LIMIT / PER_PAGE;
 
+/**
+ * Results come back newest first, and recent work is the dullest part of
+ * anyone's history. Measured over one real 678-commit account, the best
+ * subjects sat on pages 2 and 3 while page 1 was routine and pages 5 onward
+ * were dead. Opening a game on page 1 alone therefore ranks the least
+ * interesting slice of someone's history.
+ *
+ * So the first batch reads a few pages and every later batch reads exactly one,
+ * which keeps the steady-state cost at one search per player per batch. GitHub
+ * allows only 10 search requests a minute unauthenticated, and a game fetches
+ * repeatedly as rounds advance, so sustained multi-page reads would throttle a
+ * public game within a round or two.
+ */
+const OPENING_SEARCH_BUDGET = 8;
+const MAX_OPENING_PAGES = 3;
+
+function openingPages(playerCount: number): number {
+  return Math.max(
+    1,
+    Math.min(
+      MAX_OPENING_PAGES,
+      Math.floor(OPENING_SEARCH_BUDGET / playerCount),
+    ),
+  );
+}
+
 export function validateCommitRequest(value: unknown): IndexedCommitRequest {
   if (
     !isRecord(value) ||
@@ -422,29 +448,44 @@ export async function searchCommitBatch(
       if (cursor.exhausted) {
         return { username, cursor, commits: [] as CommitCard[], warnings: [] };
       }
-      const query = new URLSearchParams({
-        q: `author:${username}`,
-        sort: "committer-date",
-        order: "desc",
-        per_page: String(PER_PAGE),
-        page: String(cursor.page),
-      });
-      const data = await githubGet(
-        `/search/commits?${query}`,
-        searchToken,
-        fetcher,
-      );
-      const page = parseSearchPage(data, cursor.page, PER_PAGE);
-      const authors = await resolveAuthors(page.items);
       const commits: CommitCard[] = [];
-      for (const [index, item] of page.items.entries()) {
-        const commit = parseCommit(item, username, undefined, authors[index]);
-        if (commit) commits.push(commit);
+      let nextPage = cursor.page;
+      let exhausted = false;
+      let firstPageTotal = 0;
+      const budget =
+        cursor.page === 1 ? openingPages(request.usernames.length) : 1;
+      while (nextPage <= MAX_PAGE && nextPage - cursor.page < budget) {
+        const query = new URLSearchParams({
+          q: `author:${username}`,
+          sort: "committer-date",
+          order: "desc",
+          per_page: String(PER_PAGE),
+          page: String(nextPage),
+        });
+        const data = await githubGet(
+          `/search/commits?${query}`,
+          searchToken,
+          fetcher,
+        );
+        const page = parseSearchPage(data, nextPage, PER_PAGE);
+        if (nextPage === cursor.page) firstPageTotal = page.totalCount;
+        const authors = await resolveAuthors(page.items);
+        for (const [index, item] of page.items.entries()) {
+          const commit = parseCommit(item, username, undefined, authors[index]);
+          if (commit) commits.push(commit);
+        }
+        nextPage += 1;
+        // The parser reports exhaustion at the 1000-result ceiling too, so this
+        // also stops the run from walking past MAX_PAGE.
+        if (page.exhausted) {
+          exhausted = true;
+          break;
+        }
       }
       const warnings: string[] = [];
       if (
         options.warnOnEmpty !== false &&
-        page.totalCount === 0 &&
+        firstPageTotal === 0 &&
         cursor.page === 1
       ) {
         warnings.push(
@@ -455,10 +496,7 @@ export async function searchCommitBatch(
       }
       return {
         username,
-        cursor: {
-          page: cursor.page + 1,
-          exhausted: page.exhausted,
-        },
+        cursor: { page: nextPage, exhausted },
         commits,
         warnings,
       };

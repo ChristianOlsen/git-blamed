@@ -31,27 +31,36 @@ This option is **local-development only**: it requires development mode and a lo
 
 Commit subjects are ranked by a built-in heuristic that favours confessional,
 frustrated and self-deprecating writing over release stamps and ticket
-references. Set a [TypeSafe](https://typesafe.ai) key to add a jev pass on top
-of it:
+references. Add a key to put a model pass on top of it:
 
 ```dotenv
-TYPESAFE_API_KEY=your_typesafe_key
+GEMINI_API_KEY=your_key
 ```
+
+Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+Google AI Studio's free tier needs no billing setup. Nothing else is
+configurable: the model (`gemini-3.5-flash-lite`, called through Google's own
+`@google/genai` SDK) is fixed in `src/lib/wit-model.ts`. A batch of ten subjects
+scores in under a second. The larger `gemini-3.8-flash` produced the same scores
+but took thirteen, so the lite model is the better trade here.
 
 With a key present, the setup screen shows a **Let AI pick the funniest
 commits** switch, on by default. Turning it off runs the heuristic alone and
 calls no model. The demo never calls a model.
 
 The server sends the **subject line only** of up to 60 commits per batch, in one
-request, and asks jev to score each against a five-level rubric. Subject lines
-are truncated to 200 characters and travel as data rather than as instructions,
-so a commit message cannot redirect the scoring. Nothing is discarded: a dull
-commit sinks in the order rather than disappearing from the game.
+request, and asks the model to score each against a five-level rubric. Subject
+lines are truncated to 200 characters and are framed as untrusted data, so a
+commit message cannot redirect the scoring. Nothing is discarded: a dull commit
+sinks in the order rather than disappearing from the game.
 
 Without the key the heuristic ranking is used on its own, and the same happens
 whenever the call fails. In that case the game shows a note under **Search
-limits**. See the privacy note below before enabling this on a repository whose
-commit messages are not public.
+limits**.
+
+Free tiers generally reserve the right to train on what you send, so treat this
+as suitable for public commits and hobby use rather than for private work
+repositories. See the privacy note below.
 
 ## Deploy to Vercel
 
@@ -102,7 +111,7 @@ Private commits visible to the **host's account** can appear on the shared scree
 
 Manually entered tokens remain in browser memory and are sent to this app's backend in an Authorization header for commit requests. Signing out clears that browser token and profile immediately, without a server request. It **does not revoke** the token at GitHub; revoke it separately in GitHub's settings. The optional local-development token instead stays in `.env.local` and the server's environment; it is never returned to the browser and is not erased by switching to public mode. There are no server-side sessions or authentication cookies.
 
-There is no database or application-side commit persistence. Loaded commits, guesses, and history live in client memory and are lost on refresh. Requests and sensitive responses use `no-store`. Commit text is not logged by application code. Commit text is not sent to an AI service unless `TYPESAFE_API_KEY` is set and the AI ranking switch is on; in that case the subject line of each ranked commit is sent to the TypeSafe API, and commit bodies, author names, repository names and URLs never are. Infrastructure operators can still control their own access logs and hosting environment.
+There is no database or application-side commit persistence. Loaded commits, guesses, and history live in client memory and are lost on refresh. Requests and sensitive responses use `no-store`. Commit text is not logged by application code. Commit text is not sent to an AI service unless `GEMINI_API_KEY` is set and the AI ranking switch is on; in that case the subject line of each ranked commit is sent to Google's Gemini API, and commit bodies, author names, repository names and URLs never are. Infrastructure operators can still control their own access logs and hosting environment.
 
 Do not share a host account or token between unrelated groups. Connected games use the token's repository access. Public games share the server IP's anonymous GitHub quotas; connected games share quotas with other activity using that account. Changing players or starting another game does not reset those quotas. Public games stay public; private games prompt for reconnection if their token expires rather than silently changing their search scope. This is a small, trusted-group app—not a multi-tenant service or an access-control boundary between people sharing a browser.
 

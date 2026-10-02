@@ -166,7 +166,7 @@ test("zero indexed commits never stop a PR-only player's pending pages or queue"
   );
 });
 
-test("each player makes at most one search request per batch, reserving discovery until its queue drains", async () => {
+test("the opening batch reads a few pages, then each player makes one search request per batch", async () => {
   let cursors: CommitRequest["cursors"] = {};
   const { calls, fetcher } = mockFetcher((url) => {
     if (url.pathname === "/search/issues") {
@@ -200,13 +200,17 @@ test("each player makes at most one search request per batch, reserving discover
     const searches = calls
       .slice(start)
       .filter((url) => url.pathname.startsWith("/search/"));
-    assert.equal(searches.length, 2);
+    // Batch 1 is the opening commit search and reads three pages per player;
+    // every other batch stays at one request each, which is the budget that
+    // keeps a public game inside GitHub's 10 searches a minute.
+    const perAuthor = batch === 1 ? 3 : 1;
+    assert.equal(searches.length, perAuthor * 2);
     for (const author of ["alice", "bob"]) {
       assert.equal(
         searches.filter((url) =>
           url.searchParams.get("q")?.endsWith(`author:${author}`),
         ).length,
-        1,
+        perAuthor,
       );
     }
     assert.ok(

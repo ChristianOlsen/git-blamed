@@ -294,7 +294,7 @@ test("searches above the 1000-result cap advance without a warning", async () =>
       1250,
     ),
   );
-  assert.deepEqual(result.cursors, { alice: { page: 2, exhausted: false } });
+  assert.deepEqual(result.cursors, { alice: { page: 4, exhausted: false } });
   assert.equal(result.exhausted, false);
   assert.deepEqual(result.warnings, []);
 });
@@ -337,7 +337,7 @@ test("all users need to be exhausted; usernames cannot leak across searches", as
       assert.equal(new URL(String(url)).searchParams.get("q"), "author:bob");
       return searchResponse(
         Array.from({ length: 100 }, (_, i) => item(i, "bob")),
-        250,
+        1250,
       );
     },
   );

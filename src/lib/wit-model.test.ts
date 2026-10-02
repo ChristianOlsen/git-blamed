@@ -33,7 +33,7 @@ test("a batch too small to reorder is never sent to the model", async () => {
 
 test("scores reorder the batch and the heuristic order breaks ties", async () => {
   const commits = [card("a"), card("b"), card("c"), card("d")];
-  // jev returns a weighted position on the rubric, so scores are fractional.
+  // Fractional scores are accepted, so the rubric can widen without changes.
   const scores = new Map([
     ["Commit a", 2.4],
     ["Commit b", 3.9],
